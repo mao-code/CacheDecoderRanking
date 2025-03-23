@@ -4,7 +4,7 @@ from tqdm import tqdm
 # Import Pyserini for retrieval.
 from pyserini.search.lucene import LuceneSearcher
 
-def prepare_training_samples_bce(corpus: dict, queries: dict, qrels: dict, hard_negative: bool = False, bm25_index=None, bm25_doc_ids=None, index_name="msmarco-passage"):
+def prepare_training_samples_bce(corpus: dict, queries: dict, qrels: dict, hard_negative: bool = False, index_name="msmarco-passage"):
     """
     Creates training sample pairs: (query_text, doc_text, label) where label is 1.0 for relevant docs and 0.0 for negatives.
     For each positive, a negative is also added so that their numbers match.
@@ -15,21 +15,20 @@ def prepare_training_samples_bce(corpus: dict, queries: dict, qrels: dict, hard_
     
     # Precompute hard negatives if enabled.
     hard_negatives = {}
-    if hard_negative and bm25_index is not None and bm25_doc_ids is not None:
-        for qid in tqdm(qrels, desc="Precomputing hard negatives"):
-            query_text = queries[qid]
-            
-            hits = searcher.search(query_text, k=10)
-            doc_ids = [hit.docid for hit in hits]
+    for qid in tqdm(qrels, desc="Precomputing hard negatives"):
+        query_text = queries[qid]
+        
+        hits = searcher.search(query_text, k=10)
+        doc_ids = [hit.docid for hit in hits]
 
-            candidate_negatives = [doc_id for doc_id in doc_ids if doc_id not in qrels[qid]]
-            if candidate_negatives:
-                hard_negatives[qid] = candidate_negatives  # store list of negatives
-            else:
+        candidate_negatives = [doc_id for doc_id in doc_ids if doc_id not in qrels[qid]]
+        if candidate_negatives:
+            hard_negatives[qid] = candidate_negatives  # store list of negatives
+        else:
+            neg_doc_id = random.choice(all_doc_ids)
+            while neg_doc_id in qrels[qid]:
                 neg_doc_id = random.choice(all_doc_ids)
-                while neg_doc_id in qrels[qid]:
-                    neg_doc_id = random.choice(all_doc_ids)
-                hard_negatives[qid] = [neg_doc_id]
+            hard_negatives[qid] = [neg_doc_id]
 
     # For each query, add positive examples and for each positive add a corresponding negative.
     for qid, rel_docs in tqdm(qrels.items(), total=len(qrels), desc="Processing queries"):

@@ -10,6 +10,8 @@ class ScoringWrapper(PreTrainedModel):
         # Store the base decoder model (e.g., GPT2Model, OPTModel, BloomModel)
         self.base_model = base_model
 
+        self._input_embeddings = base_model.get_input_embeddings()
+
         # Add token type embeddings (e.g., 2 types: document and query/special tokens)
         self.token_type_embeddings = nn.Embedding(2, config.hidden_size)
 
@@ -99,10 +101,11 @@ class ScoringWrapper(PreTrainedModel):
             }
 
     def get_input_embeddings(self):
-        return self.base_model.get_input_embeddings()
+        return self._input_embeddings
     
     def set_input_embeddings(self, value):
-        return self.base_model.set_input_embeddings(value)
+        self._input_embeddings = value
+        self.base_model.set_input_embeddings(value)
 
     def get_position_embeddings(self):
         return self.base_model.get_position_embeddings() if hasattr(self.base_model, 'get_position_embeddings') else None

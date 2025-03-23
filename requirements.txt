@@ -9,3 +9,5 @@ pyserini # please follow the instructions here from Pyserini to install the envi
 faiss-cpu
 
 tabulate
+
+pip install beir accelerate transformers torchinfo wandb sentencepiece bm25s

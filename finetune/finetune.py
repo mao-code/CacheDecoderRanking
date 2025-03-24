@@ -7,6 +7,7 @@ import random
 
 from transformers import AutoModel, AutoTokenizer, AutoConfig, TrainingArguments, Trainer, EarlyStoppingCallback
 import torch
+import torch.nn as nn
 
 from dataset.document_ranking import DocumentRankingDataset
 from finetune.utils import prepare_training_samples_bce, subsample_dev_set
@@ -208,12 +209,14 @@ def main():
         remove_unused_columns=False
     )
 
+    loss_fn = nn.BCEWithLogitsLoss()
     # Initialize our custom Trainer.
     trainer = DocumentRankingTrainer(
         model=scoring_model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
+        loss_fn=loss_fn,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]
     )
 

@@ -30,8 +30,18 @@ def prepare_training_samples_bce(
     for qid in tqdm(qrels, desc=f"Precomputing hard negatives using index {index_name}"):
         if qid not in queries:
             continue
-        query_text = queries[qid]
-        hits = searcher.search(query_text, 20) # top-20 hits
+        
+        query = queries[qid]
+        # Handle different query formats
+        if isinstance(query, str):
+            query_text = query
+        elif isinstance(query, dict) and 'text' in query:
+            query_text = query['text']  # Extract the query text
+        else:
+            print(f"Skipping qid {qid}: Invalid query format {query}")
+            continue
+
+        hits = searcher.search(query_text, k=20)
         doc_ids = [hit.docid for hit in hits]
         candidate_negatives = [doc_id for doc_id in doc_ids if doc_id not in qrels[qid]]
         if candidate_negatives:

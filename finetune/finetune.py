@@ -14,6 +14,12 @@ from finetune.utils import prepare_training_samples_bce, subsample_dev_set
 from utils import load_dataset
 from CDR.modeling import ScoringWrapper
 
+logging.basicConfig(
+    format="%(asctime)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+)
+
 class DocumentRankingTrainer(Trainer):
     def __init__(self, loss_fn, **kwargs):
         super().__init__(**kwargs)
@@ -25,6 +31,11 @@ class DocumentRankingTrainer(Trainer):
         logits = outputs["logits"].view(-1)
         loss = self.loss_fn(logits, labels)
         return (loss, outputs) if return_outputs else loss
+    
+    def train(self, *args, **kwargs):
+        print(f"Model: {type(self.model)}")
+        print(f"Optimizer: {type(self.optimizer)}")
+        return super().train(*args, **kwargs)
     
 def main():
     parser = argparse.ArgumentParser(description="Fine-tune a scoring model with token type embeddings and a score head.")    
@@ -152,6 +163,7 @@ def main():
     # Shuffle the final mixed training samples.
     random.shuffle(all_training_samples)
     logging.info(f"Total mixed training samples: {len(all_training_samples)}")
+    logging.info(f"First Training samples: {all_training_samples[0]}")
     
     # Create PyTorch Dataset for training.
     train_dataset = DocumentRankingDataset(all_training_samples, tokenizer, scoring_model)
@@ -175,6 +187,8 @@ def main():
         hard_negative=True,
         index_name=primary_index
     )
+    logging.info(f"Total samples generated for dev set: {len(validation_samples)}")
+    logging.info(f"First Validation samples: {validation_samples[0]}")
     val_dataset = DocumentRankingDataset(validation_samples, tokenizer, scoring_model)
 
     total_training_steps = math.ceil(
@@ -198,9 +212,9 @@ def main():
         evaluation_strategy="steps",
         eval_steps=args.validate_every_n_steps,
         logging_dir="./logs_finetune",
-        logging_steps=50,
+        logging_steps=1,
         logging_first_step=True,
-        save_steps=1000,
+        save_steps=40,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
@@ -243,19 +257,19 @@ if __name__ == "__main__":
     python -m finetune.finetune \
     --model_name "EleutherAI/pythia-410m" \
     --datasets "msmarco,nq-train,hotpotqa,fiqa" \
-    --samples_per_dataset "1000,3000,2000,1000" \
+    --samples_per_dataset "64,64,64,64" \
     --index_names "msmarco-v1-passage,beir-v1.0.0-nq.flat,beir-v1.0.0-hotpotqa.flat,beir-v1.0.0-fiqa.flat" \
     --n_per_query 5 \
     --num_train_epochs 1 \
     --per_device_train_batch_size 8 \
     --gradient_accumulation_steps 16 \
-    --lr 1e-4 \
+    --lr 1e-5 \
     --weight_decay 0.01 \
     --sample_dev_percentage 0.1 \
     --per_device_eval_batch_size 2 \
     --eval_accumulation_steps 1 \
     --patience 3 \
-    --validate_every_n_steps 1000 \
+    --validate_every_n_steps 20 \
     --output_dir "./cdr_finetune_ckpts_pythia_410m_mixed" \
     --save_model_path "cdr_finetune_final_pythia_410m_mixed" \
     --run_name "pythia_410m_mixed" \

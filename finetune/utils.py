@@ -41,7 +41,7 @@ def prepare_training_samples_bce(
             print(f"Skipping qid {qid}: Invalid query format {query}")
             continue
 
-        hits = searcher.search(query_text, k=20)
+        hits = searcher.search(query_text, k=100)
         doc_ids = [hit.docid for hit in hits]
         candidate_negatives = [doc_id for doc_id in doc_ids if doc_id not in qrels[qid]]
         if candidate_negatives:
@@ -64,8 +64,8 @@ def prepare_training_samples_bce(
             continue
         random.shuffle(pos_doc_ids)
 
-        n_per_query = min(n_per_query, len(pos_doc_ids))
-        pos_samples = pos_doc_ids[:n_per_query]
+        pos_n_per_query = min(n_per_query, len(pos_doc_ids))
+        pos_samples = pos_doc_ids[:pos_n_per_query]
         for pos_doc_id in pos_samples:
             training_samples.append((query_text, corpus[pos_doc_id]['text'], 1.0))
         

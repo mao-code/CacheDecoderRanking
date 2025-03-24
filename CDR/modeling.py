@@ -41,8 +41,11 @@ class ScoringWrapper(PreTrainedModel):
         token_embeds = self.decoder.get_input_embeddings()(input_ids)
 
         # Handle position embeddings (optional, depending on the model)
-        position_ids = torch.arange(0, input_ids.size(1), device=input_ids.device).unsqueeze(0).expand_as(input_ids)
-        position_embeds = self.decoder.get_position_embeddings()(position_ids) if hasattr(self.decoder, 'get_position_embeddings') else 0
+        # position_ids = torch.arange(0, input_ids.size(1), device=input_ids.device).unsqueeze(0).expand_as(input_ids)
+
+        # position_embeds = 0
+        # if hasattr(self.decoder, 'get_position_embeddings'):
+        #     position_embeds = self.decoder.get_position_embeddings()(position_ids)
 
         # Add token type embeddings (default to 0 if not provided)
         if token_type_ids is None:
@@ -50,11 +53,11 @@ class ScoringWrapper(PreTrainedModel):
         token_type_embeds = self.token_type_embeddings(token_type_ids)
 
         # Combine all embeddings
-        inputs_embeds = token_embeds + position_embeds + token_type_embeds
+        inputs_embeds = token_embeds + token_type_embeds
 
         # Pass through the base model to get hidden states
         outputs = self.decoder(
-            input_ids=input_ids,
+            input_ids=None,
             past_key_values=past_key_values,
             attention_mask=attention_mask,
             token_type_ids=token_type_ids,
@@ -113,7 +116,15 @@ class ScoringWrapper(PreTrainedModel):
             input_ids_tensor (torch.LongTensor): Tensor of token IDs with shape (batch_size, seq_length).
             token_type_ids_tensor (torch.LongTensor): Tensor of token type IDs with shape (batch_size, seq_length).
         """
-        max_length = self.config.n_positions
+        # Retrieve max_length from the model's configuration
+        max_length = getattr(self.config, 'n_positions', None)
+        if max_length is None:
+            max_length = getattr(self.config, 'max_position_embeddings', None)
+        if max_length is None:
+            raise ValueError(
+                "The model's configuration does not specify a maximum sequence length. "
+                "Please use a model that defines 'n_positions' or 'max_position_embeddings'."
+            )
 
         input_ids_list = []
         token_type_ids_list = []
@@ -170,5 +181,8 @@ class ScoringWrapper(PreTrainedModel):
     def set_input_embeddings(self, value):
         self.decoder.set_input_embeddings(value)
 
-    def get_position_embeddings(self):
-        return self.decoder.get_position_embeddings() if hasattr(self.decoder, 'get_position_embeddings') else None
+    # def get_position_embeddings(self):
+    #     if hasattr(self.decoder, 'get_position_embeddings'):
+    #         return self.decoder.get_position_embeddings()
+    #     else:
+    #         return None

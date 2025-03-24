@@ -117,25 +117,37 @@ def main():
     # ----------------------------------------------------------
     # Load and mix training samples from multiple datasets.
     # ----------------------------------------------------------
+
+
     all_training_samples = []
     for dataset_name, sample_count, index_name in zip(datasets_list, samples_list, index_names_list):
         logging.info(f"Loading dataset: {dataset_name} (train split)")
         corpus_train, queries_train, qrels_train = load_dataset(dataset_name, split="train")
         logging.info(f"Using index '{index_name}' for dataset: {dataset_name}")
         logging.info(f"Preparing training samples for dataset: {dataset_name}")
+
+        # If sample_count > 0 and lower than available samples, randomly select a subset.
+        if sample_count > 0 and sample_count < len(qrels_train):
+            # Sample a subset of query IDs from qrels_train.
+            sampled_qids = random.sample(list(qrels_train.keys()), sample_count)
+            
+            # Filter the qrels and queries dictionaries to only include the sampled query IDs.
+            qrels_train_sampled = {qid: qrels_train[qid] for qid in sampled_qids}
+            queries_train_sampled = {qid: queries_train[qid] for qid in sampled_qids if qid in queries_train}
+        else:
+            qrels_train_sampled = qrels_train
+            queries_train_sampled = queries_train
+        logging.info(f"Number of queries in the sampled training set: {len(queries_train_sampled)}")
+
         samples = prepare_training_samples_bce(
             corpus_train,
-            queries_train,
-            qrels_train,
+            queries_train_sampled,
+            qrels_train_sampled,
             n_per_query=args.n_per_query,
             hard_negative=True,
             index_name=index_name
         )
         logging.info(f"Total samples generated for {dataset_name}: {len(samples)}")
-        # If sample_count > 0 and lower than available samples, randomly select a subset.
-        if sample_count > 0 and sample_count < len(samples):
-            random.shuffle(samples)
-            samples = samples[:sample_count]
         all_training_samples.extend(samples)
     
     # Shuffle the final mixed training samples.

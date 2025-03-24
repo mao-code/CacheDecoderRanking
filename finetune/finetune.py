@@ -32,9 +32,9 @@ def main():
     parser.add_argument("--model_name", type=str, default="gpt2-medium", 
                         help="Pre-trained model name (e.g., gpt2-medium, facebook/opt-350m).")
     # Specify multiple datasets.
-    parser.add_argument("--datasets", type=str, default="ms_marco,nq,hotpotqa,fiqa",
+    parser.add_argument("--datasets", type=str, default="msmarco,nq-train,hotpotqa,fiqa",
                         help="Comma-separated list of dataset names to use for training (e.g., ms_marco,nq,hotpotqa,fiqa).")
-    parser.add_argument("--samples_per_dataset", type=str, default="1000,2000,3000,1000",
+    parser.add_argument("--samples_per_dataset", type=str, default="1000,3000,2000,1000",
                         help="Comma-separated list of number of training samples to use per dataset in the same order as --datasets. Use 0 to use all available samples.")
     # Accept a comma-separated list of index names corresponding to each dataset.
     parser.add_argument("--index_names", type=str,
@@ -229,7 +229,7 @@ if __name__ == "__main__":
     Example usage:
     python -m finetune.finetune \
     --model_name "EleutherAI/pythia-410m" \
-    --datasets "ms_marco,nq,hotpotqa,fiqa" \
+    --datasets "msmarco,nq-train,hotpotqa,fiqa" \
     --samples_per_dataset "1000,3000,2000,1000" \
     --index_names "msmarco-v1-passage,beir-v1.0.0-nq.flat,beir-v1.0.0-hotpotqa.flat,beir-v1.0.0-fiqa.flat" \
     --n_per_query 5 \

@@ -97,6 +97,72 @@ class ScoringWrapper(PreTrainedModel):
                 "hidden_states": outputs.hidden_states, 
                 "attentions": outputs.attentions
             }
+        
+    def prepare_input(self, documents: list, queries: list, tokenizer):
+        """
+        Prepares batched inputs for the model by truncating only the document tokens if needed.
+
+        Args:
+            documents (List[str]): List of document texts.
+            queries (List[str]): List of query texts.
+            tokenizer: The tokenizer (must have attributes: cls_token_id, sep_token_id, pad_token_id,
+                    and method: encode()).
+            max_length (int): Maximum sequence length (including special tokens).
+
+        Returns:
+            input_ids_tensor (torch.LongTensor): Tensor of token IDs with shape (batch_size, seq_length).
+            token_type_ids_tensor (torch.LongTensor): Tensor of token type IDs with shape (batch_size, seq_length).
+        """
+        max_length = self.config.n_positions
+
+        input_ids_list = []
+        token_type_ids_list = []
+        attention_masks_list = []
+        
+        for document, query in zip(documents, queries):
+            # Encode document and query without adding special tokens.
+            doc_ids = tokenizer.encode(document, add_special_tokens=False)
+            query_ids = tokenizer.encode(query, add_special_tokens=False)
+            score_id = tokenizer.convert_tokens_to_ids("[SCORE]")
+            
+            # Calculate available tokens for the document.
+            # Reserve tokens for [CLS] and [SEP] plus the query tokens.
+            reserved_tokens = 2 + len(query_ids)  # [SEP], [SCORE]
+            available_doc_length = max_length - reserved_tokens
+            
+            if available_doc_length < 0:
+                raise ValueError("max_length is too small to accommodate the query and required special tokens.")
+            
+            # Truncate document tokens if necessary, leaving the query unchanged.
+            truncated_doc_ids = doc_ids[:available_doc_length]
+            
+            # Build the final input sequence: truncated_doc_ids + [SEP] + query_ids + [SCORE].
+            input_ids = truncated_doc_ids + [tokenizer.sep_token_id] + query_ids + [score_id]
+            
+            # Create token type IDs:
+            # Token type 0 for document tokens, and [SEP]; 1 for query tokens and [SCORE].
+            doc_part_length = len(truncated_doc_ids) + 2  # account for [SEP] and [SCORE]
+            token_type_ids = [0] * doc_part_length + [1] * len(query_ids)
+            
+            # Pad sequence if necessary.
+            pad_length = max_length - len(input_ids)
+            if pad_length > 0:
+                # For fine-tuning, we pad to the right.
+                input_ids += [tokenizer.pad_token_id] * pad_length
+                token_type_ids += [0] * pad_length
+
+            attention_mask = [1] * len(input_ids[:max_length - pad_length]) + [0] * pad_length
+
+            input_ids_list.append(input_ids)
+            token_type_ids_list.append(token_type_ids)
+            attention_masks_list.append(attention_mask)
+        
+        # Convert lists to tensors with shape (batch_size, max_length).
+        input_ids_tensor = torch.tensor(input_ids_list, dtype=torch.long)
+        token_type_ids_tensor = torch.tensor(token_type_ids_list, dtype=torch.long)
+        attention_mask_tensor = torch.tensor(attention_masks_list, dtype=torch.long)
+        
+        return input_ids_tensor, token_type_ids_tensor, attention_mask_tensor
 
     def get_input_embeddings(self):
         return self.decoder.get_input_embeddings()

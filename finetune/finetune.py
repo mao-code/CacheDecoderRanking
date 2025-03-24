@@ -14,12 +14,6 @@ from finetune.utils import prepare_training_samples_bce, subsample_dev_set
 from utils import load_dataset
 from CDR.modeling import ScoringWrapper
 
-logging.basicConfig(
-    format="%(asctime)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    level=logging.INFO,
-)
-
 class DocumentRankingTrainer(Trainer):
     def __init__(self, loss_fn, **kwargs):
         super().__init__(**kwargs)
@@ -31,11 +25,6 @@ class DocumentRankingTrainer(Trainer):
         logits = outputs["logits"].view(-1)
         loss = self.loss_fn(logits, labels)
         return (loss, outputs) if return_outputs else loss
-    
-    def train(self, *args, **kwargs):
-        print(f"Model: {type(self.model)}")
-        print(f"Optimizer: {type(self.optimizer)}")
-        return super().train(*args, **kwargs)
     
 def main():
     parser = argparse.ArgumentParser(description="Fine-tune a scoring model with token type embeddings and a score head.")    
@@ -75,6 +64,18 @@ def main():
     parser.add_argument("--wandb_entity", type=str, default="your_group_name", help="Wandb entity name")
     parser.add_argument("--wandb_api_key", type=str, default="your_wandb_api_key", help="Wandb API key for logging")
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[
+            logging.StreamHandler(),
+            # logging.FileHandler(args.log_file, mode="w")
+        ],
+        force=True
+    )
+    logger = logging.getLogger()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     now_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -177,8 +178,9 @@ def main():
     logging.info(f"Loading dev set from primary dataset: {primary_dataset}")
     corpus_dev, queries_dev, qrels_dev = load_dataset(primary_dataset, split="dev")
     sampled_queries_dev, sampled_qrels_dev = subsample_dev_set(
-        corpus_dev, qrels_dev, sample_percentage=args.sample_dev_percentage
+        queries_dev, qrels_dev, sample_percentage=args.sample_dev_percentage
     )
+
     validation_samples = prepare_training_samples_bce(
         corpus_dev,
         sampled_queries_dev,
@@ -209,7 +211,7 @@ def main():
         weight_decay=args.weight_decay,
         per_device_eval_batch_size=args.per_device_eval_batch_size,
         eval_accumulation_steps=args.eval_accumulation_steps,
-        evaluation_strategy="steps",
+        eval_strategy="steps",
         eval_steps=args.validate_every_n_steps,
         logging_dir="./logs_finetune",
         logging_steps=1,
@@ -257,7 +259,7 @@ if __name__ == "__main__":
     python -m finetune.finetune \
     --model_name "EleutherAI/pythia-410m" \
     --datasets "msmarco,nq-train,hotpotqa,fiqa" \
-    --samples_per_dataset "64,64,64,64" \
+    --samples_per_dataset "128,128,128,128" \
     --index_names "msmarco-v1-passage,beir-v1.0.0-nq.flat,beir-v1.0.0-hotpotqa.flat,beir-v1.0.0-fiqa.flat" \
     --n_per_query 5 \
     --num_train_epochs 1 \

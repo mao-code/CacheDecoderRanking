@@ -3,12 +3,6 @@ import logging
 from beir import util
 from beir.datasets.data_loader import GenericDataLoader
 
-logging.basicConfig(
-    format="%(asctime)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    level=logging.INFO,
-)
-
 def load_dataset(dataset: str, split: str):
     """Loads a BEIR dataset and prefixes ids with the dataset name."""
     out_dir = "datasets"

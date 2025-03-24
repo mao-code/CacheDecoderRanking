@@ -4,13 +4,11 @@ import torch.nn as nn
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 class ScoringWrapper(PreTrainedModel):
-    def __init__(self, base_model, config):
+    def __init__(self, decoder, config):
         super().__init__(config)
 
         # Store the base decoder model (e.g., GPT2Model, OPTModel, BloomModel)
-        self.base_model = base_model
-
-        self._input_embeddings = base_model.get_input_embeddings()
+        self.decoder = decoder
 
         # Add token type embeddings (e.g., 2 types: document and query/special tokens)
         self.token_type_embeddings = nn.Embedding(2, config.hidden_size)
@@ -40,11 +38,11 @@ class ScoringWrapper(PreTrainedModel):
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         # Get token embeddings from the base model
-        token_embeds = self.base_model.get_input_embeddings()(input_ids)
+        token_embeds = self.decoder.get_input_embeddings()(input_ids)
 
         # Handle position embeddings (optional, depending on the model)
         position_ids = torch.arange(0, input_ids.size(1), device=input_ids.device).unsqueeze(0).expand_as(input_ids)
-        position_embeds = self.base_model.get_position_embeddings()(position_ids) if hasattr(self.base_model, 'get_position_embeddings') else 0
+        position_embeds = self.decoder.get_position_embeddings()(position_ids) if hasattr(self.decoder, 'get_position_embeddings') else 0
 
         # Add token type embeddings (default to 0 if not provided)
         if token_type_ids is None:
@@ -55,7 +53,7 @@ class ScoringWrapper(PreTrainedModel):
         inputs_embeds = token_embeds + position_embeds + token_type_embeds
 
         # Pass through the base model to get hidden states
-        outputs = self.base_model(
+        outputs = self.decoder(
             input_ids=input_ids,
             past_key_values=past_key_values,
             attention_mask=attention_mask,
@@ -101,11 +99,10 @@ class ScoringWrapper(PreTrainedModel):
             }
 
     def get_input_embeddings(self):
-        return self._input_embeddings
+        return self.decoder.get_input_embeddings()
     
     def set_input_embeddings(self, value):
-        self._input_embeddings = value
-        self.base_model.set_input_embeddings(value)
+        self.decoder.set_input_embeddings(value)
 
     def get_position_embeddings(self):
-        return self.base_model.get_position_embeddings() if hasattr(self.base_model, 'get_position_embeddings') else None
+        return self.decoder.get_position_embeddings() if hasattr(self.decoder, 'get_position_embeddings') else None

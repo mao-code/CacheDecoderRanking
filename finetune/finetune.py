@@ -97,8 +97,8 @@ def main():
     # Load tokenizer and model
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     config = AutoConfig.from_pretrained(args.model_name)
-    base_model = AutoModel.from_pretrained(args.model_name, config=config)
-    scoring_model = ScoringWrapper(base_model, config)
+    decoder = AutoModel.from_pretrained(args.model_name, config=config)
+    scoring_model = ScoringWrapper(decoder, config)
 
     # Add special tokens and resize embeddings
     tokenizer.padding_side = "left"
@@ -109,7 +109,7 @@ def main():
     if "[SCORE]" not in tokenizer.get_vocab():
         tokenizer.add_special_tokens({"additional_special_tokens": ["[SCORE]"]})
 
-    scoring_model.base_model.resize_token_embeddings(len(tokenizer))
+    scoring_model.decoder.resize_token_embeddings(len(tokenizer))
     scoring_model.to(device)
     num_params = sum(p.numel() for p in scoring_model.parameters())
     print(f"Number of parameters: {num_params}")

@@ -117,8 +117,6 @@ def main():
     # ----------------------------------------------------------
     # Load and mix training samples from multiple datasets.
     # ----------------------------------------------------------
-
-
     all_training_samples = []
     for dataset_name, sample_count, index_name in zip(datasets_list, samples_list, index_names_list):
         logging.info(f"Loading dataset: {dataset_name} (train split)")

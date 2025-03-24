@@ -31,7 +31,7 @@ def prepare_training_samples_bce(
         if qid not in queries:
             continue
         query_text = queries[qid]
-        hits = searcher.search(query_text, k=10)
+        hits = searcher.search(query_text, 20) # top-20 hits
         doc_ids = [hit.docid for hit in hits]
         candidate_negatives = [doc_id for doc_id in doc_ids if doc_id not in qrels[qid]]
         if candidate_negatives:

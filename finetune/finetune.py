@@ -216,7 +216,7 @@ def main():
         logging_dir="./logs_finetune",
         logging_steps=1,
         logging_first_step=True,
-        save_steps=40,
+        save_steps=100,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
@@ -259,7 +259,7 @@ if __name__ == "__main__":
     python -m finetune.finetune \
     --model_name "EleutherAI/pythia-410m" \
     --datasets "msmarco,nq-train,hotpotqa,fiqa" \
-    --samples_per_dataset "128,128,128,128" \
+    --samples_per_dataset "45000,40000,35000,20000" \
     --index_names "msmarco-v1-passage,beir-v1.0.0-nq.flat,beir-v1.0.0-hotpotqa.flat,beir-v1.0.0-fiqa.flat" \
     --n_per_query 5 \
     --num_train_epochs 1 \
@@ -271,7 +271,7 @@ if __name__ == "__main__":
     --per_device_eval_batch_size 2 \
     --eval_accumulation_steps 1 \
     --patience 3 \
-    --validate_every_n_steps 20 \
+    --validate_every_n_steps 50 \
     --output_dir "./cdr_finetune_ckpts_pythia_410m_mixed" \
     --save_model_path "cdr_finetune_final_pythia_410m_mixed" \
     --run_name "pythia_410m_mixed" \

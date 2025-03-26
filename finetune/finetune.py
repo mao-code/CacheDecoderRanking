@@ -5,7 +5,8 @@ from datetime import datetime
 import math
 import random
 
-from transformers import AutoModel, AutoTokenizer, AutoConfig, TrainingArguments, Trainer, EarlyStoppingCallback, DataLoader
+from transformers import AutoModel, AutoTokenizer, AutoConfig, TrainingArguments, Trainer, EarlyStoppingCallback
+from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
 

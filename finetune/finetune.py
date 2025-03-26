@@ -308,7 +308,7 @@ if __name__ == "__main__":
     --lr 1e-5 \
     --weight_decay 0.01 \
     --sample_dev_percentage 0.1 \
-    --per_device_eval_batch_size 2 \
+    --per_device_eval_batch_size 8 \
     --eval_accumulation_steps 1 \
     --patience 3 \
     --validate_every_n_steps 50 \

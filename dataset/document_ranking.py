@@ -13,7 +13,9 @@ class DocumentRankingDataset(Dataset):
 
     def __getitem__(self, idx):
         # Extract query, doc, and label from the sample
-        query, doc, label = self.samples[idx]
+        sample = self.samples[idx]
+        # query, doc, label = self.samples[idx]
+        query, doc, label = sample['query_text'], sample['doc_text'], sample['label']
 
         # Tokenize and prepare input tensors
         # Assuming model.prepare_input takes lists of docs and queries

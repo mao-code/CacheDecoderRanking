@@ -4,6 +4,79 @@ from tqdm import tqdm
 # Import Pyserini for retrieval.
 from pyserini.search.lucene import LuceneSearcher
 
+def prepare_training_samples_infonce(
+    corpus: dict,
+    queries: dict,
+    qrels: dict,
+    n_per_query: int = 7,
+    hard_negative: bool = False,
+    index_name: str = "msmarco-v1-passage"
+):
+    training_samples = []
+    all_doc_ids = list(corpus.keys())
+    searcher = LuceneSearcher.from_prebuilt_index(index_name)
+    hard_negatives = {}
+    for qid in tqdm(qrels, desc=f"Precomputing hard negatives using index {index_name}"):
+        if qid not in queries:
+            continue
+        query = queries[qid]
+
+        if isinstance(query, dict):
+            query = query['text']
+
+        hits = searcher.search(query, k=100)
+        doc_ids = [hit.docid for hit in hits]
+        candidate_negatives = [doc_id for doc_id in doc_ids if doc_id not in qrels[qid]]
+        if candidate_negatives:
+            hard_negatives[qid] = candidate_negatives
+        else:
+            neg_doc_id = random.choice(all_doc_ids)
+            while neg_doc_id in qrels[qid]:
+                neg_doc_id = random.choice(all_doc_ids)
+            hard_negatives[qid] = [neg_doc_id]
+
+    for qid, rel_docs in tqdm(qrels.items(), total=len(qrels), desc="Processing queries"):
+        if qid not in queries:
+            continue
+        query_text = queries[qid]
+
+        if isinstance(query_text, dict):
+            query_text = query_text['text']
+
+        pos_doc_ids = [doc_id for doc_id, score in rel_docs.items() if score > 0]
+        if not pos_doc_ids:
+            continue
+        for pos_doc_id in pos_doc_ids:
+            # Select n_per_query negatives
+            if hard_negative and qid in hard_negatives:
+                candidate_negatives = hard_negatives[qid]
+                if len(candidate_negatives) >= n_per_query:
+                    neg_doc_ids = random.sample(candidate_negatives, n_per_query)
+                else:
+                    neg_doc_ids = candidate_negatives.copy()
+                    while len(neg_doc_ids) < n_per_query:
+                        neg_doc_ids.append(random.choice(candidate_negatives))
+            else:
+                neg_doc_ids = []
+                while len(neg_doc_ids) < n_per_query:
+                    neg_doc_id = random.choice(all_doc_ids)
+                    if neg_doc_id not in rel_docs and neg_doc_id not in neg_doc_ids:
+                        neg_doc_ids.append(neg_doc_id)
+            # Add positive sample
+            training_samples.append({
+                'query_text': query_text,
+                'doc_text': corpus[pos_doc_id]['text'],
+                'label': 1.0
+            })
+            # Add negative samples
+            for neg_doc_id in neg_doc_ids:
+                training_samples.append({
+                    'query_text': query_text,
+                    'doc_text': corpus[neg_doc_id]['text'],
+                    'label': 0.0
+                })
+    return training_samples
+
 def prepare_training_samples_bce(
     corpus: dict,
     queries: dict,
@@ -62,7 +135,7 @@ def prepare_training_samples_bce(
         pos_doc_ids = [doc_id for doc_id, score in rel_docs.items() if score > 0]
         if not pos_doc_ids:
             continue
-        random.shuffle(pos_doc_ids)
+        # random.shuffle(pos_doc_ids)
 
         pos_n_per_query = min(n_per_query, len(pos_doc_ids))
         pos_samples = pos_doc_ids[:pos_n_per_query]

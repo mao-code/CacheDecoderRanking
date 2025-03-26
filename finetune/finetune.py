@@ -5,15 +5,16 @@ from datetime import datetime
 import math
 import random
 
-from transformers import AutoModel, AutoTokenizer, AutoConfig, TrainingArguments, Trainer, EarlyStoppingCallback
+from transformers import AutoModel, AutoTokenizer, AutoConfig, TrainingArguments, Trainer, EarlyStoppingCallback, DataLoader
 import torch
 import torch.nn as nn
 
 from dataset.document_ranking import DocumentRankingDataset
-from finetune.utils import prepare_training_samples_bce, subsample_dev_set
+from finetune.utils import prepare_training_samples_infonce, prepare_training_samples_bce, subsample_dev_set
 from utils import load_dataset
 from CDR.modeling import ScoringWrapper
 
+# For BCE
 class DocumentRankingTrainer(Trainer):
     def __init__(self, loss_fn, **kwargs):
         super().__init__(**kwargs)
@@ -26,6 +27,42 @@ class DocumentRankingTrainer(Trainer):
         loss = self.loss_fn(logits, labels)
         return (loss, outputs) if return_outputs else loss
     
+# For InfoNCE
+class DocumentRankingTrainer(Trainer):
+    def __init__(self, n_per_query, **kwargs):
+        super().__init__(**kwargs)
+        self.n_per_query = n_per_query
+
+    def get_train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.args.per_device_train_batch_size,
+            shuffle=False,
+            drop_last=True,
+            collate_fn=self.data_collator,
+            num_workers=self.args.dataloader_num_workers,
+            pin_memory=self.args.dataloader_pin_memory,
+        )
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        labels = inputs.pop("labels")  # Not used in this loss
+        outputs = model(**inputs, return_dict=True)
+        logits = outputs["logits"].view(-1)
+        
+        group_size = 1 + self.n_per_query
+        if len(logits) % group_size != 0:
+            raise ValueError(f"Batch size {len(logits)} must be a multiple of {group_size}")
+        N_groups = len(logits) // group_size
+        
+        logits = logits.view(N_groups, group_size)
+        targets = torch.zeros(N_groups, dtype=torch.long, device=logits.device) # Target loss to 0
+        
+        tau = 0.1  # Temperature parameter, can be tuned
+        logits = logits / tau
+        
+        loss = nn.CrossEntropyLoss()(logits, targets)
+        return (loss, outputs) if return_outputs else loss
+
 def main():
     parser = argparse.ArgumentParser(description="Fine-tune a scoring model with token type embeddings and a score head.")    
     
@@ -150,7 +187,7 @@ def main():
             queries_train_sampled = queries_train
         logging.info(f"Number of queries in the sampled training set: {len(queries_train_sampled)}")
 
-        samples = prepare_training_samples_bce(
+        samples = prepare_training_samples_infonce(
             corpus_train,
             queries_train_sampled,
             qrels_train_sampled,
@@ -161,8 +198,7 @@ def main():
         logging.info(f"Total samples generated for {dataset_name}: {len(samples)}")
         all_training_samples.extend(samples)
     
-    # Shuffle the final mixed training samples.
-    random.shuffle(all_training_samples)
+    # random.shuffle(all_training_samples) # Do not shuffle for InfoNCE.
     logging.info(f"Total mixed training samples: {len(all_training_samples)}")
     logging.info(f"First Training samples: {all_training_samples[0]}")
     
@@ -181,7 +217,7 @@ def main():
         queries_dev, qrels_dev, sample_percentage=args.sample_dev_percentage
     )
 
-    validation_samples = prepare_training_samples_bce(
+    validation_samples = prepare_training_samples_infonce(
         corpus_dev,
         sampled_queries_dev,
         sampled_qrels_dev,
@@ -225,14 +261,15 @@ def main():
         remove_unused_columns=False
     )
 
-    loss_fn = nn.BCEWithLogitsLoss()
+    # loss_fn = nn.BCEWithLogitsLoss()
     # Initialize our custom Trainer.
     trainer = DocumentRankingTrainer(
         model=scoring_model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
-        loss_fn=loss_fn,
+        # loss_fn=loss_fn,
+        n_per_query=args.n_per_query,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]
     )
 
@@ -255,13 +292,15 @@ if __name__ == "__main__":
     - EleutherAI/pythia-410m
     - EleutherAI/pythia-1b
 
+    Ensure per_device_train_batch_size is a multiple of (1 + n_per_query)
+
     Example usage:
     python -m finetune.finetune \
     --model_name "EleutherAI/pythia-410m" \
     --datasets "msmarco,nq-train,hotpotqa,fiqa" \
     --samples_per_dataset "45000,40000,35000,20000" \
     --index_names "msmarco-v1-passage,beir-v1.0.0-nq.flat,beir-v1.0.0-hotpotqa.flat,beir-v1.0.0-fiqa.flat" \
-    --n_per_query 5 \
+    --n_per_query 7 \
     --num_train_epochs 1 \
     --per_device_train_batch_size 8 \
     --gradient_accumulation_steps 16 \

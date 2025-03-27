@@ -7,8 +7,8 @@ import time
 from tabulate import tabulate  # For pretty-printing the comparison table
 import csv
 
-# Import BEIR and BM25 utilities
-from script.utils import load_dataset, beir_evaluate, beir_evaluate_custom
+from utils import load_dataset
+from evaluation.utils import beir_evaluate, beir_evaluate_custom
 
 # Import Pyserini for retrieval.
 from pyserini.search.lucene import LuceneSearcher
@@ -16,6 +16,7 @@ from pyserini.search.faiss import FaissSearcher
 
 from CDR.modeling import ScoringWrapper
 from transformers import AutoModel, AutoTokenizer, AutoConfig
+from safetensors.torch import load_file
 
 # Import CrossEncoder for standard models.
 from sentence_transformers import CrossEncoder
@@ -34,7 +35,7 @@ def main():
                         help="Specific index name to use; if None, use default based on retrieval_type")
     parser.add_argument("--models", type=str, nargs='+', required=True, 
                         help="List of models to test, in the form 'type:checkpoint' (e.g., 'cdr:/path/to/cdr', 'standard:cross-encoder/ms-marco-MiniLM-L-12-v2')")
-    parser.add_argument("--cdr_tokenizer", type=str, default="EleutherAI/pythia-410m", help="Tokenizer to use for CDR models")
+    parser.add_argument("--cdr_decoder", type=str, default="EleutherAI/pythia-410m", help="Base decoder model to use for CDR models")
     parser.add_argument("--log_file", type=str, default="rerank_results.log", help="File to log the evaluation results")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size for reranking")
     parser.add_argument("--top_k", type=int, default=100, help="Number of top BM25 results to retrieve per query")
@@ -88,14 +89,14 @@ def main():
     # Process each model specified in --models
     for model_spec in args.models:
         model_type, model_checkpoint = model_spec.split(":", 1)
+        base_decoer_model = args.cdr_decoder
         base_model_id = f"{model_type}_{model_checkpoint.replace('/', '_')}"
         logger.info(f"Evaluating model: {base_model_id}")
 
         if model_type == "cdr":
             logger.info("Loading tokenizer for CDR...")
             # Load the original tokenizer for CDR
-            tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
-            tokenizer.padding_side = "left"
+            tokenizer = AutoTokenizer.from_pretrained(args.cdr_decoder)
             if tokenizer.pad_token is None:
                 tokenizer.add_special_tokens({"pad_token": "[PAD]"})
             if tokenizer.sep_token is None:
@@ -103,10 +104,16 @@ def main():
             if "[SCORE]" not in tokenizer.get_vocab():
                 tokenizer.add_special_tokens({"additional_special_tokens": ["[SCORE]"]})
 
-            logger.info("Loading CDR reranker model...")
+            logger.info("Loading CDR reranker model...")    
             config = AutoConfig.from_pretrained(model_checkpoint)
-            decoder = AutoModel.from_pretrained(model_checkpoint, config=config)
-            model = ScoringWrapper(decoder, config)
+            decoder = AutoModel.from_pretrained(args.cdr_decoder)
+            model = ScoringWrapper(config, decoder)
+            model.resize_token_embeddings(len(tokenizer))
+
+            # Load weights from safetensors
+            state_dict = load_file(f"{model_checkpoint}/model.safetensors")
+            model.load_state_dict(state_dict)
+
             model.to(device) 
             model.eval()
 
@@ -324,7 +331,7 @@ def main():
     logger.info("\n" + tabulate(comparison_table, headers=headers, tablefmt="grid"))
 
     # --- Save the comparison table to a CSV file ---
-    csv_file = "comparison_table.csv"
+    csv_file = "rerank_comparison_table.csv"
     with open(csv_file, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(headers)
@@ -335,13 +342,16 @@ if __name__ == "__main__":
     main()
 
 """
+Standard Models:
+standard:cross-encoder/ms-marco-MiniLM-L-12-v2 standard:mixedbread-ai/mxbai-rerank-large-v1 standard:jinaai/jina-reranker-v2-base-multilingual standard:BAAI/bge-reranker-v2-m3
+
 Example usage:
-python -m script.benchmarks.rerank.rerank \
+python -m evaluation.rerank \
   --dataset msmarco \
   --index_name msmarco-v1-passage \
   --split test \
   --models cdr:./cdr_finetune_final_pythia_410m_mixed standard:cross-encoder/ms-marco-MiniLM-L-12-v2 \
-  --cdr_tokenizer EleutherAI/pythia-410m \
+  --cdr_decoder EleutherAI/pythia-410m \
   --log_file rerank_results.log \
   --batch_size 16 \
   --top_k 100 \

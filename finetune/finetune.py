@@ -149,10 +149,9 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     config = AutoConfig.from_pretrained(args.model_name)
     decoder = AutoModel.from_pretrained(args.model_name, config=config)
-    scoring_model = ScoringWrapper(decoder, config)
+    scoring_model = ScoringWrapper(config, decoder)
 
     # Add special tokens and resize embeddings
-    tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.add_special_tokens({"pad_token": "[PAD]"})
     if tokenizer.sep_token is None:
@@ -266,6 +265,7 @@ def main():
     # Initialize our custom Trainer.
     trainer = DocumentRankingTrainer(
         model=scoring_model,
+        # tokenizer=tokenizer,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,

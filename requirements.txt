@@ -10,4 +10,4 @@ faiss-cpu
 
 tabulate
 
-pip install beir accelerate transformers torchinfo wandb sentencepiece bm25s
+flash-attn

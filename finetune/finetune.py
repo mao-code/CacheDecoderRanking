@@ -253,7 +253,7 @@ def main():
         logging_dir="./logs_finetune",
         logging_steps=1,
         logging_first_step=True,
-        save_steps=100,
+        save_steps=300,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
@@ -310,7 +310,7 @@ if __name__ == "__main__":
     --sample_dev_percentage 0.1 \
     --per_device_eval_batch_size 8 \
     --eval_accumulation_steps 1 \
-    --patience 3 \
+    --patience 4 \
     --validate_every_n_steps 50 \
     --output_dir "./cdr_finetune_ckpts_pythia_410m_mixed" \
     --save_model_path "cdr_finetune_final_pythia_410m_mixed" \

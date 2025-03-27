@@ -19,23 +19,27 @@ from transformers import AutoModel, AutoTokenizer, AutoConfig
 # Import CrossEncoder for standard models.
 from sentence_transformers import CrossEncoder
 
+# Import caching functions from our cache module
+from CDR.cache import build_documents_kv_cache, score_batch_with_kv_cache
+
 def main():
     # Argument parser setup
-    parser = argparse.ArgumentParser(description="Test script for reranking using sparse or dense retrieval + various reranker models")
+    parser = argparse.ArgumentParser(
+        description="Test script for reranking using sparse or dense retrieval + various reranker models"
+    )
     parser.add_argument("--dataset", type=str, default="msmarco", help="Dataset to use for testing (e.g., msmarco)")
     parser.add_argument("--split", type=str, default="test", help="Dataset split to use (e.g., test)")
     parser.add_argument("--index_name", type=str, default="msmarco-v1-passage", 
                         help="Specific index name to use; if None, use default based on retrieval_type")
-
     parser.add_argument("--models", type=str, nargs='+', required=True, 
                         help="List of models to test, in the form 'type:checkpoint' (e.g., 'cdr:/path/to/cdr', 'standard:cross-encoder/ms-marco-MiniLM-L-12-v2')")
-    parser.add_argument("--log_file", type=str, default="rerank_results.log", 
-                        help="File to log the evaluation results")
+    parser.add_argument("--cdr_tokenizer", type=str, default="EleutherAI/pythia-410m", help="Tokenizer to use for CDR models")
+    parser.add_argument("--log_file", type=str, default="rerank_results.log", help="File to log the evaluation results")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size for reranking")
     parser.add_argument("--top_k", type=int, default=100, help="Number of top BM25 results to retrieve per query")
     parser.add_argument("--k_values", type=int, nargs='+', default=[1, 5, 10],
                         help="List of k values for computing evaluation metrics (e.g., NDCG, MAP)")
-    parser.add_argument("--retrieval_type", type=str, default="sparse", choices=["sparse", "dense"], 
+    parser.add_argument("--retrieval_type", type=str, default="sparse", choices=["sparse", "dense"],
                         help="Type of retrieval to use")
 
     args = parser.parse_args()
@@ -64,9 +68,9 @@ def main():
     if args.index_name is not None:
         index_name = args.index_name
     elif args.retrieval_type == "sparse":
-        index_name = 'msmarco-v1-passage'  # Default sparse index for MS MARCO
+        index_name = 'msmarco-v1-passage'
     elif args.retrieval_type == "dense":
-        index_name = 'msmarco-v1-passage.tct_colbert-v2-hnp'  # Default dense index for MS MARCO
+        index_name = 'msmarco-v1-passage.tct_colbert-v2-hnp'
     else:
         raise ValueError("Invalid retrieval_type")
     
@@ -83,16 +87,13 @@ def main():
     # Process each model specified in --models
     for model_spec in args.models:
         model_type, model_checkpoint = model_spec.split(":", 1)
-        model_id = f"{model_type}_{model_checkpoint.replace('/', '_')}"
+        base_model_id = f"{model_type}_{model_checkpoint.replace('/', '_')}"
+        logger.info(f"Evaluating model: {base_model_id}")
 
-        logger.info(f"Evaluating model: {model_id}")
-
-        # Load the appropriate model based on type
         if model_type == "cdr":
             logger.info("Loading tokenizer for CDR...")
-
+            # Load the original tokenizer for CDR
             tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
-       
             tokenizer.padding_side = "left"
             if tokenizer.pad_token is None:
                 tokenizer.add_special_tokens({"pad_token": "[PAD]"})
@@ -107,23 +108,30 @@ def main():
             model = ScoringWrapper(decoder, config)
             model.to(device) 
             model.eval()
+
+            # Prepare accumulators for plain and cache variants
+            total_inference_time_plain = 0.0
+            total_docs_processed_plain = 0
+            total_inference_time_cache = 0.0
+            total_docs_processed_cache = 0
+
+            # Dictionaries to hold reranked results for each method
+            reranked_results_plain = {}
+            reranked_results_cache = {}
         elif model_type == "standard":
             logger.info(f"Loading standard CrossEncoder model: {model_checkpoint}")
             model = CrossEncoder(model_checkpoint, device=device, automodel_args={"torch_dtype": "auto"}, trust_remote_code=True)
+            # For standard models, we use a single reranking result dictionary.
         else:
-            raise ValueError(f"Invalid model type: {model_type}. Must be 'gfr' or 'standard'.")
+            raise ValueError(f"Invalid model type: {model_type}. Must be 'cdr' or 'standard'.")
 
-        # Dictionary to hold reranking results
-        reranked_results = {}
-
-        # Timing variables
+        # Timing variables for standard models and for hit rate measurement
         total_inference_time = 0.0
         total_docs_processed = 0
-
-        # Hit rate for different retrieval types
         total_hits_rate = 0.0
 
         logger.info(f"Using {args.retrieval_type} to retrieve top documents and reranking...")
+        # Process each query
         for qid, query_text in tqdm(queries.items(), desc="Processing queries"):
             # Retrieve top documents
             hits = searcher.search(query_text, k=args.top_k)
@@ -135,9 +143,9 @@ def main():
             hits_rate = len(common_docs) / len(relevant_doc_ids) if len(relevant_doc_ids) > 0 else 0
             total_hits_rate += hits_rate
 
-            if model_type == "gfr":
-                # GFR reranking with batch processing
-                scores = []
+            if model_type == "cdr":
+                # ---------- Plain (non-cached) CDR evaluation ----------
+                scores_plain = []
                 for i in range(0, len(candidate_docs), args.batch_size):
                     batch_docs = candidate_docs[i:i + args.batch_size]
                     batch_queries = [query_text] * len(batch_docs)
@@ -145,7 +153,6 @@ def main():
                     input_ids = input_ids.to(device)
                     token_type_ids = token_type_ids.to(device)
                     attention_mask = attention_mask.to(device)
-
                     start_time = time.time()
                     with torch.no_grad():
                         output = model(
@@ -155,13 +162,32 @@ def main():
                             return_dict=True
                         )
                     elapsed = time.time() - start_time
-                    total_inference_time += elapsed
-                    total_docs_processed += len(batch_docs)
-
+                    total_inference_time_plain += elapsed
+                    total_docs_processed_plain += len(batch_docs)
                     batch_scores = output["logits"].squeeze(-1).tolist()
                     if isinstance(batch_scores, float):
                         batch_scores = [batch_scores]
-                    scores.extend(batch_scores)
+                    scores_plain.extend(batch_scores)
+                reranked_results_plain[qid] = {doc_id: score for doc_id, score in zip(candidate_doc_ids, scores_plain)}
+
+                # ---------- CDR with Cache evaluation ----------
+                # First, compute the candidate document cache (this time is NOT counted in ranking time)
+                candidate_doc_dict = {doc_id: corpus[doc_id]['text'] for doc_id in candidate_doc_ids}
+                candidate_kv_caches = build_documents_kv_cache(model, candidate_doc_dict, tokenizer, device, batch_size=args.batch_size)
+                # Now, measure ranking time for scoring using the cached representations.
+                start_time = time.time()
+                with torch.no_grad():
+                    scores_cache = score_batch_with_kv_cache(
+                        model,
+                        list(candidate_kv_caches.values()),
+                        [query_text] * len(candidate_kv_caches),
+                        tokenizer,
+                        device
+                    )
+                elapsed = time.time() - start_time
+                total_inference_time_cache += elapsed
+                total_docs_processed_cache += len(candidate_doc_ids)
+                reranked_results_cache[qid] = {doc_id: score for doc_id, score in zip(candidate_doc_ids, scores_cache)}
             elif model_type == "standard":
                 # Standard CrossEncoder reranking
                 pairs = [(query_text, doc) for doc in candidate_docs]
@@ -172,53 +198,114 @@ def main():
                 total_docs_processed += len(candidate_docs)
                 if not isinstance(scores, list):
                     scores = scores.tolist()
+                reranked_results = {qid: {doc_id: score for doc_id, score in zip(candidate_doc_ids, scores)}}
+            else:
+                reranked_results = {}
 
-            # Map document IDs to scores
-            reranked_results[qid] = {doc_id: score for doc_id, score in zip(candidate_doc_ids, scores)}
+        # --- Evaluate and log results ---
+        if model_type == "cdr":
+            # Evaluate plain CDR reranking
+            logger.info("Evaluating plain CDR reranking results...")
+            ndcg_plain, _map_plain, recall_plain, precision_plain = beir_evaluate(qrels, reranked_results_plain, args.k_values, ignore_identical_ids=True)
+            mrr_plain = beir_evaluate_custom(qrels, reranked_results_plain, args.k_values, metric="mrr")
+            top_k_accuracy_plain = beir_evaluate_custom(qrels, reranked_results_plain, args.k_values, metric="top_k_accuracy")
+            avg_inference_time_ms_plain = (total_inference_time_plain / total_docs_processed_plain) * 1000 if total_docs_processed_plain > 0 else 0
+            throughput_plain = total_docs_processed_plain / total_inference_time_plain if total_inference_time_plain > 0 else 0
 
-        # Evaluate reranked results
-        logger.info("Evaluating reranked results...")
-        ndcg, _map, recall, precision = beir_evaluate(qrels, reranked_results, args.k_values, ignore_identical_ids=True)
-        mrr = beir_evaluate_custom(qrels, reranked_results, args.k_values, metric="mrr")
-        top_k_accuracy = beir_evaluate_custom(qrels, reranked_results, args.k_values, metric="top_k_accuracy")
+            # Evaluate CDR with Cache reranking
+            logger.info("Evaluating CDR with cache reranking results...")
+            ndcg_cache, _map_cache, recall_cache, precision_cache = beir_evaluate(qrels, reranked_results_cache, args.k_values, ignore_identical_ids=True)
+            mrr_cache = beir_evaluate_custom(qrels, reranked_results_cache, args.k_values, metric="mrr")
+            top_k_accuracy_cache = beir_evaluate_custom(qrels, reranked_results_cache, args.k_values, metric="top_k_accuracy")
+            avg_inference_time_ms_cache = (total_inference_time_cache / total_docs_processed_cache) * 1000 if total_docs_processed_cache > 0 else 0
+            throughput_cache = total_docs_processed_cache / total_inference_time_cache if total_inference_time_cache > 0 else 0
 
-        # Calculate performance metrics
-        avg_inference_time_ms = (total_inference_time / total_docs_processed) * 1000 if total_docs_processed > 0 else 0
-        throughput_docs_per_sec = total_docs_processed / total_inference_time if total_inference_time > 0 else 0
+            avg_hits_rate = total_hits_rate / len(queries)
 
-        avg_hits_rate = total_hits_rate / len(queries)
+            # Save results for plain CDR variant
+            model_results_plain = {
+                "model_id": base_model_id + "_plain",
+                "ndcg": ndcg_plain,
+                "map": _map_plain,
+                "recall": recall_plain,
+                "precision": precision_plain,
+                "mrr": mrr_plain,
+                "top_k_accuracy": top_k_accuracy_plain,
+                "avg_inference_time_ms": avg_inference_time_ms_plain,
+                "throughput_docs_per_sec": throughput_plain
+            }
+            all_model_results.append(model_results_plain)
 
-        # Store results
-        model_results = {
-            "model_id": model_id,
-            "ndcg": ndcg,
-            "map": _map,
-            "recall": recall,
-            "precision": precision,
-            "mrr": mrr,
-            "top_k_accuracy": top_k_accuracy,
-            "avg_inference_time_ms": avg_inference_time_ms,
-            "throughput_docs_per_sec": throughput_docs_per_sec
-        }
-        all_model_results.append(model_results)
+            # Save results for CDR with cache variant
+            model_results_cache = {
+                "model_id": base_model_id + "_cache",
+                "ndcg": ndcg_cache,
+                "map": _map_cache,
+                "recall": recall_cache,
+                "precision": precision_cache,
+                "mrr": mrr_cache,
+                "top_k_accuracy": top_k_accuracy_cache,
+                "avg_inference_time_ms": avg_inference_time_ms_cache,
+                "throughput_docs_per_sec": throughput_cache
+            }
+            all_model_results.append(model_results_cache)
 
-        # Log individual model results
-        logger.info(f"Evaluation Metrics for {model_id}:")
-        logging.info(f"Average Hits Rate for {args.retrieval_type} retriever: {avg_hits_rate}")
-        logger.info(f"NDCG: {ndcg}")
-        logger.info(f"MAP: {_map}")
-        logger.info(f"Recall: {recall}")
-        logger.info(f"Precision: {precision}")
-        logger.info(f"MRR: {mrr}")
-        logger.info(f"Top_K_Accuracy: {top_k_accuracy}")
-        logger.info(f"Avg Inference Time (ms): {avg_inference_time_ms:.2f}")
-        logger.info(f"Throughput (docs/sec): {throughput_docs_per_sec:.2f}")
+            logger.info(f"Evaluation Metrics for {base_model_id}_plain:")
+            logger.info(f"NDCG: {ndcg_plain}")
+            logger.info(f"MAP: {_map_plain}")
+            logger.info(f"Recall: {recall_plain}")
+            logger.info(f"Precision: {precision_plain}")
+            logger.info(f"MRR: {mrr_plain}")
+            logger.info(f"Top_K_Accuracy: {top_k_accuracy_plain}")
+            logger.info(f"Avg Inference Time (ms): {avg_inference_time_ms_plain:.2f}")
+            logger.info(f"Throughput (docs/sec): {throughput_plain:.2f}")
+
+            logger.info(f"Evaluation Metrics for {base_model_id}_cache:")
+            logger.info(f"NDCG: {ndcg_cache}")
+            logger.info(f"MAP: {_map_cache}")
+            logger.info(f"Recall: {recall_cache}")
+            logger.info(f"Precision: {precision_cache}")
+            logger.info(f"MRR: {mrr_cache}")
+            logger.info(f"Top_K_Accuracy: {top_k_accuracy_cache}")
+            logger.info(f"Avg Inference Time (ms): {avg_inference_time_ms_cache:.2f}")
+            logger.info(f"Throughput (docs/sec): {throughput_cache:.2f}")
+
+        elif model_type == "standard":
+            ndcg, _map, recall, precision = beir_evaluate(qrels, reranked_results, args.k_values, ignore_identical_ids=True)
+            mrr = beir_evaluate_custom(qrels, reranked_results, args.k_values, metric="mrr")
+            top_k_accuracy = beir_evaluate_custom(qrels, reranked_results, args.k_values, metric="top_k_accuracy")
+            avg_inference_time_ms = (total_inference_time / total_docs_processed) * 1000 if total_docs_processed > 0 else 0
+            throughput_docs_per_sec = total_docs_processed / total_inference_time if total_inference_time > 0 else 0
+
+            avg_hits_rate = total_hits_rate / len(queries)
+
+            model_results = {
+                "model_id": base_model_id,
+                "ndcg": ndcg,
+                "map": _map,
+                "recall": recall,
+                "precision": precision,
+                "mrr": mrr,
+                "top_k_accuracy": top_k_accuracy,
+                "avg_inference_time_ms": avg_inference_time_ms,
+                "throughput_docs_per_sec": throughput_docs_per_sec
+            }
+            all_model_results.append(model_results)
+
+            logger.info(f"Evaluation Metrics for {base_model_id}:")
+            logger.info(f"NDCG: {ndcg}")
+            logger.info(f"MAP: {_map}")
+            logger.info(f"Recall: {recall}")
+            logger.info(f"Precision: {precision}")
+            logger.info(f"MRR: {mrr}")
+            logger.info(f"Top_K_Accuracy: {top_k_accuracy}")
+            logger.info(f"Avg Inference Time (ms): {avg_inference_time_ms:.2f}")
+            logger.info(f"Throughput (docs/sec): {throughput_docs_per_sec:.2f}")
 
     # Log comparison table for all models
     logger.info("Comparison of all models:")
     comparison_table = []
     for result in all_model_results:
-        # We only use k=10 for comparison
         row = [
             result["model_id"],
             result["ndcg"].get("NDCG@10", "-"),
@@ -238,16 +325,17 @@ def main():
 if __name__ == "__main__":
     main()
 
-    """
-    Example usage:
-    python -m script.benchmarks.rerank.rerank \
-    --dataset msmarco \
-    --index_name msmarco-v1-passage \
-    --split test \
-    --models cdr:./cdr_finetune_final_pythia_410m_mixed standard:cross-encoder/ms-marco-MiniLM-L-12-v2 standard:mixedbread-ai/mxbai-rerank-large-v1 standard:jinaai/jina-reranker-v2-base-multilingual standard:BAAI/bge-reranker-v2-m3 \
-    --log_file rerank_results_pythia_410m.log \
-    --batch_size 16 \
-    --top_k 100 \
-    --k_values 10 \
-    --retrieval_type sparse
-    """
+"""
+Example usage:
+python -m script.benchmarks.rerank.rerank \
+  --dataset msmarco \
+  --index_name msmarco-v1-passage \
+  --split test \
+  --models cdr:./cdr_finetune_final_pythia_410m_mixed standard:cross-encoder/ms-marco-MiniLM-L-12-v2 \
+  --cdr_tokenizer EleutherAI/pythia-410m \
+  --log_file rerank_results.log \
+  --batch_size 16 \
+  --top_k 100 \
+  --k_values 10 \
+  --retrieval_type sparse
+"""

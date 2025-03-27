@@ -2,6 +2,7 @@ import time
 import torch
 from tqdm import tqdm
 import pytrec_eval
+from CDR.cache import build_documents_kv_cache, score_batch_with_kv_cache
 
 def beir_evaluate(qrels: dict, results: dict, k_values: list, ignore_identical_ids: bool = True):
     """Evaluates ranking results using BEIR's pytrec_eval."""
@@ -103,7 +104,7 @@ def beir_evaluate_custom(qrels: dict, results: dict, k_values: list, metric: str
     return {}
 
 def evaluate_full_retrieval(model, corpus: dict, queries: dict, qrels: dict,
-                            tokenizer, device, batch_size=2, k_values=[1, 3, 5, 10]):
+                            tokenizer, device, batch_size=2, k_values=[1, 5, 10]):
     """
     For each query, scores all documents in the corpus using the loaded model.
     Returns evaluation metrics (NDCG, MAP, Recall, Precision, MRR, etc.).
@@ -119,6 +120,7 @@ def evaluate_full_retrieval(model, corpus: dict, queries: dict, qrels: dict,
         for i in tqdm(range(0, len(doc_ids), batch_size), desc=f"Scoring docs for query {query_id}", leave=False):
             batch_doc_ids = doc_ids[i : i + batch_size]
             batch_docs = [corpus[doc_id]['text'] for doc_id in batch_doc_ids]
+
             # Prepare input tensors (assumes model.prepare_input exists)
             batch_input_ids, batch_token_type_ids, batch_attention_mask = model.prepare_input(
                 batch_docs, [query] * len(batch_docs), tokenizer

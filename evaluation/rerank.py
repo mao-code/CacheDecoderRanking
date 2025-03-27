@@ -5,6 +5,7 @@ import torch
 from tqdm import tqdm
 import time
 from tabulate import tabulate  # For pretty-printing the comparison table
+import csv
 
 # Import BEIR and BM25 utilities
 from script.utils import load_dataset, beir_evaluate, beir_evaluate_custom
@@ -321,6 +322,14 @@ def main():
 
     headers = ["Model", "NDCG@10", "MAP@10", "Recall@10", "Precision@10", "MRR@10", "Top_K_Accuracy@10", "Avg Inference Time (ms)", "Throughput (docs/sec)"]
     logger.info("\n" + tabulate(comparison_table, headers=headers, tablefmt="grid"))
+
+    # --- Save the comparison table to a CSV file ---
+    csv_file = "comparison_table.csv"
+    with open(csv_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+        writer.writerows(comparison_table)
+    logger.info(f"Comparison table saved to {csv_file}")
 
 if __name__ == "__main__":
     main()

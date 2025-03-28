@@ -120,8 +120,10 @@ def main():
 
             # Prepare accumulators for plain and cache variants
             total_inference_time_plain = 0.0
+            total_score_time_plain = 0.0
             total_docs_processed_plain = 0
             total_inference_time_cache = 0.0
+            total_score_time_cache = 0.0
             total_docs_processed_cache = 0
 
             # Dictionaries to hold reranked results for each method
@@ -136,6 +138,7 @@ def main():
 
         # Timing variables for standard models and for hit rate measurement
         total_inference_time = 0.0
+        total_score_time = 0.0
         total_docs_processed = 0
         total_hits_rate = 0.0
 
@@ -172,6 +175,7 @@ def main():
                         )
                     elapsed = time.time() - start_time
                     total_inference_time_plain += elapsed
+                    total_score_time_plain += elapsed
                     total_docs_processed_plain += len(batch_docs)
                     batch_scores = output["logits"].squeeze(-1).tolist()
                     if isinstance(batch_scores, float):
@@ -188,7 +192,7 @@ def main():
                 # Now, measure ranking time for scoring using the cached representations.
                 start_time = time.time()
                 with torch.no_grad():
-                    scores_cache = score_with_cache(
+                    scores_cache, score_time = score_with_cache(
                         model,
                         candidate_kv_caches,
                         query_text,
@@ -198,6 +202,7 @@ def main():
                     )
                 elapsed = time.time() - start_time
                 total_inference_time_cache += elapsed
+                total_score_time_cache += score_time
                 total_docs_processed_cache += len(candidate_doc_ids)
                 reranked_results_cache[qid] = {doc_id: score for doc_id, score in zip(candidate_doc_ids, scores_cache)}
             elif model_type == "standard":
@@ -207,6 +212,7 @@ def main():
                 scores = model.predict(pairs, batch_size=args.batch_size)
                 elapsed = time.time() - start_time
                 total_inference_time += elapsed
+                total_score_time += elapsed
                 total_docs_processed += len(candidate_docs)
                 if not isinstance(scores, list):
                     scores = scores.tolist()
@@ -222,6 +228,7 @@ def main():
             mrr_plain = beir_evaluate_custom(qrels, reranked_results_plain, args.k_values, metric="mrr")
             top_k_accuracy_plain = beir_evaluate_custom(qrels, reranked_results_plain, args.k_values, metric="top_k_accuracy")
             avg_inference_time_ms_plain = (total_inference_time_plain / total_docs_processed_plain) * 1000 if total_docs_processed_plain > 0 else 0
+            avg_score_time_ms_plain = (total_score_time_plain / total_docs_processed_plain) * 1000 if total_docs_processed_plain > 0 else 0
             throughput_plain = total_docs_processed_plain / total_inference_time_plain if total_inference_time_plain > 0 else 0
 
             # Evaluate CDR with Cache reranking
@@ -230,6 +237,7 @@ def main():
             mrr_cache = beir_evaluate_custom(qrels, reranked_results_cache, args.k_values, metric="mrr")
             top_k_accuracy_cache = beir_evaluate_custom(qrels, reranked_results_cache, args.k_values, metric="top_k_accuracy")
             avg_inference_time_ms_cache = (total_inference_time_cache / total_docs_processed_cache) * 1000 if total_docs_processed_cache > 0 else 0
+            avg_score_time_ms_cache = (total_score_time_cache / total_docs_processed_cache) * 1000 if total_docs_processed_cache > 0 else 0
             throughput_cache = total_docs_processed_cache / total_inference_time_cache if total_inference_time_cache > 0 else 0
 
             avg_hits_rate = total_hits_rate / len(queries)
@@ -244,6 +252,7 @@ def main():
                 "mrr": mrr_plain,
                 "top_k_accuracy": top_k_accuracy_plain,
                 "avg_inference_time_ms": avg_inference_time_ms_plain,
+                "avg_score_time_ms": avg_score_time_ms_plain,
                 "throughput_docs_per_sec": throughput_plain
             }
             all_model_results.append(model_results_plain)
@@ -258,11 +267,13 @@ def main():
                 "mrr": mrr_cache,
                 "top_k_accuracy": top_k_accuracy_cache,
                 "avg_inference_time_ms": avg_inference_time_ms_cache,
+                "avg_score_time_ms": avg_score_time_ms_cache,
                 "throughput_docs_per_sec": throughput_cache
             }
             all_model_results.append(model_results_cache)
 
             logger.info(f"Evaluation Metrics for {base_model_id}_plain:")
+            logger.info(f"Average Hits Rate: {avg_hits_rate}")
             logger.info(f"NDCG: {ndcg_plain}")
             logger.info(f"MAP: {_map_plain}")
             logger.info(f"Recall: {recall_plain}")
@@ -271,8 +282,10 @@ def main():
             logger.info(f"Top_K_Accuracy: {top_k_accuracy_plain}")
             logger.info(f"Avg Inference Time (ms): {avg_inference_time_ms_plain:.2f}")
             logger.info(f"Throughput (docs/sec): {throughput_plain:.2f}")
+            logger.info("=" * 20)
 
             logger.info(f"Evaluation Metrics for {base_model_id}_cache:")
+            logger.info(f"Average Hits Rate: {avg_hits_rate}")
             logger.info(f"NDCG: {ndcg_cache}")
             logger.info(f"MAP: {_map_cache}")
             logger.info(f"Recall: {recall_cache}")
@@ -281,12 +294,14 @@ def main():
             logger.info(f"Top_K_Accuracy: {top_k_accuracy_cache}")
             logger.info(f"Avg Inference Time (ms): {avg_inference_time_ms_cache:.2f}")
             logger.info(f"Throughput (docs/sec): {throughput_cache:.2f}")
+            logger.info("=" * 20)
 
         elif model_type == "standard":
             ndcg, _map, recall, precision = beir_evaluate(qrels, reranked_results, args.k_values, ignore_identical_ids=True)
             mrr = beir_evaluate_custom(qrels, reranked_results, args.k_values, metric="mrr")
             top_k_accuracy = beir_evaluate_custom(qrels, reranked_results, args.k_values, metric="top_k_accuracy")
             avg_inference_time_ms = (total_inference_time / total_docs_processed) * 1000 if total_docs_processed > 0 else 0
+            avg_score_time_ms = (total_score_time / total_docs_processed) * 1000 if total_docs_processed > 0 else 0
             throughput_docs_per_sec = total_docs_processed / total_inference_time if total_inference_time > 0 else 0
 
             avg_hits_rate = total_hits_rate / len(queries)
@@ -300,11 +315,13 @@ def main():
                 "mrr": mrr,
                 "top_k_accuracy": top_k_accuracy,
                 "avg_inference_time_ms": avg_inference_time_ms,
+                "avg_score_time_ms": avg_score_time_ms,
                 "throughput_docs_per_sec": throughput_docs_per_sec
             }
             all_model_results.append(model_results)
 
             logger.info(f"Evaluation Metrics for {base_model_id}:")
+            logger.info(f"Average Hits Rate: {avg_hits_rate}")
             logger.info(f"NDCG: {ndcg}")
             logger.info(f"MAP: {_map}")
             logger.info(f"Recall: {recall}")
@@ -313,6 +330,7 @@ def main():
             logger.info(f"Top_K_Accuracy: {top_k_accuracy}")
             logger.info(f"Avg Inference Time (ms): {avg_inference_time_ms:.2f}")
             logger.info(f"Throughput (docs/sec): {throughput_docs_per_sec:.2f}")
+            logger.info("=" * 20)
 
     # Log comparison table for all models
     logger.info("Comparison of all models:")

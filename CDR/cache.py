@@ -13,6 +13,36 @@ from transformers.cache_utils import Cache, DynamicCache
 from tqdm import tqdm
 
 from transformers.cache_utils import DynamicCache  # needed for type checking
+import time
+
+def move_cache_to_cpu(batch_pkv):
+    # Use a dedicated CUDA stream for asynchronous transfer
+    stream = torch.cuda.Stream()
+    with torch.cuda.stream(stream):
+        if hasattr(batch_pkv, "key_cache"):
+            batch_pkv.key_cache = [tensor.to("cpu", non_blocking=True) for tensor in batch_pkv.key_cache]
+            batch_pkv.value_cache = [tensor.to("cpu", non_blocking=True) for tensor in batch_pkv.value_cache]
+        elif isinstance(batch_pkv, tuple):
+            keys_cpu = tuple(tensor.to("cpu", non_blocking=True) for tensor in batch_pkv[0])
+            values_cpu = tuple(tensor.to("cpu", non_blocking=True) for tensor in batch_pkv[1])
+            batch_pkv = (keys_cpu, values_cpu)
+    # Optionally synchronize if subsequent operations depend on the data
+    stream.synchronize()
+    return batch_pkv
+
+def move_cache_to_gpu(cache_chunk, device):
+    # Use a dedicated CUDA stream for asynchronous transfer to GPU
+    stream = torch.cuda.Stream(device)
+    with torch.cuda.stream(stream):
+        if isinstance(cache_chunk, DynamicCache):
+            cache_chunk.key_cache = [tensor.to(device, non_blocking=True) for tensor in cache_chunk.key_cache]
+            cache_chunk.value_cache = [tensor.to(device, non_blocking=True) for tensor in cache_chunk.value_cache]
+        elif isinstance(cache_chunk, tuple):
+            keys_gpu = tuple(tensor.to(device, non_blocking=True) for tensor in cache_chunk[0])
+            values_gpu = tuple(tensor.to(device, non_blocking=True) for tensor in cache_chunk[1])
+            cache_chunk = (keys_gpu, values_gpu)
+    stream.synchronize()
+    return cache_chunk
 
 def get_documents_cache(model, documents: dict, tokenizer: PreTrainedTokenizer, device: torch.device, batch_size: int = 8):
     """
@@ -44,6 +74,10 @@ def get_documents_cache(model, documents: dict, tokenizer: PreTrainedTokenizer, 
         batch_pkv = outputs.get("past_key_values", None)
         if batch_pkv is None:
             raise ValueError("The model did not return past_key_values. Ensure that use_cache=True is working.")
+        
+        # Offload the cache to CPU and store it in the list
+        batch_pkv = move_cache_to_cpu(batch_pkv)
+
         all_pkv.append(batch_pkv)
     
     # Aggregate caches from all batches
@@ -90,12 +124,21 @@ def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, de
             split_caches.append((split_key, split_value))
 
     logits_list = []
+    total_score_time = 0.0
     # Process each split
     for cache_chunk in split_caches:
         if isinstance(cache_chunk, DynamicCache):
             current_batch = len(cache_chunk.key_cache)
+            doc_seq_len = cache_chunk.key_cache[0].size(2)
         else:
             current_batch = cache_chunk[0][0].size(0)
+            doc_seq_len = cache_chunk[0][0].size(2)
+
+        # Create a cache_position tensor for the current batch
+        cache_position = torch.full((current_batch, 1), doc_seq_len, dtype=torch.long, device=device)
+
+        # Move the cache to the target device
+        cache_chunk = move_cache_to_gpu(cache_chunk, device)
 
         # Create a list of queries matching the current split batch size
         queries = [query] * current_batch
@@ -104,6 +147,7 @@ def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, de
         token_type_ids = token_type_ids.to(device)
         attention_mask = attention_mask.to(device)
 
+        start = time.time()
         with torch.no_grad():
             outputs = model(
                 input_ids=input_ids,
@@ -111,11 +155,17 @@ def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, de
                 attention_mask=attention_mask,
                 past_key_values=cache_chunk,
                 use_cache=True,
+                cache_position=cache_position,
                 return_dict=True
             )
+        elapsed = time.time() - start
+        total_score_time += elapsed
         logits_list.append(outputs["logits"])
 
-    return torch.cat(logits_list, dim=0)
+        # Offload the cache back to CPU
+        cache_chunk = move_cache_to_cpu(cache_chunk)
+
+    return torch.cat(logits_list, dim=0), total_score_time
 
 def save_kv_cache(kv_cache_dict: dict, filename: str):
     """

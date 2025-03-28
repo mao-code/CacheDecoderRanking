@@ -88,6 +88,7 @@ def main():
 
     # Process each model specified in --models
     for model_spec in args.models:
+        torch.cuda.empty_cache()
         model_type, model_checkpoint = model_spec.split(":", 1)
         base_decoer_model = args.cdr_decoder
         base_model_id = f"{model_type}_{model_checkpoint.replace('/', '_')}"
@@ -178,6 +179,8 @@ def main():
                     scores_plain.extend(batch_scores)
                 reranked_results_plain[qid] = {doc_id: score for doc_id, score in zip(candidate_doc_ids, scores_plain)}
 
+                torch.cuda.empty_cache()
+
                 # ---------- CDR with Cache evaluation ----------
                 # First, compute the candidate document cache (this time is NOT counted in ranking time)
                 candidate_doc_dict = {doc_id: corpus[doc_id]['text'] for doc_id in candidate_doc_ids}
@@ -190,7 +193,8 @@ def main():
                         candidate_kv_caches,
                         query_text,
                         tokenizer,
-                        device
+                        device,
+                        batch_size=args.batch_size
                     )
                 elapsed = time.time() - start_time
                 total_inference_time_cache += elapsed
@@ -353,7 +357,7 @@ python -m evaluation.rerank \
   --models cdr:./cdr_finetune_final_pythia_410m_mixed standard:cross-encoder/ms-marco-MiniLM-L-12-v2 \
   --cdr_decoder EleutherAI/pythia-410m \
   --log_file rerank_results.log \
-  --batch_size 16 \
+  --batch_size 8 \
   --top_k 100 \
   --k_values 10 \
   --retrieval_type sparse

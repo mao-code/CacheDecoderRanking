@@ -10,54 +10,63 @@ import torch
 from transformers import PreTrainedTokenizer
 import os
 from transformers.cache_utils import Cache, DynamicCache
+from tqdm import tqdm
+
+from transformers.cache_utils import DynamicCache  # needed for type checking
 
 def get_documents_cache(model, documents: dict, tokenizer: PreTrainedTokenizer, device: torch.device, batch_size: int = 8):
     """
-    Process multiple documents in batch to compute their kv-caches.
+    Process multiple documents in batch to compute and aggregate their kv-caches.
     """
     doc_ids = list(documents.keys())
-    kv_cache_dict = {}
     all_docs = [documents[doc_id] for doc_id in doc_ids]
     
-    # Tokenize all documents at once. We add special tokens, pad and truncate as needed.
+    # Tokenize all documents at once. Add special tokens, pad, and truncate as needed.
     input_ids, token_type_ids, attention_mask = model.prepare_documents_input(all_docs, tokenizer)
-
     num_docs = input_ids.size(0)
-
-    # Process in batches
-    for i in range(0, num_docs, batch_size):
-        batch_inputs_ids = input_ids[i:i+batch_size]
-        batch_attention_mask = attention_mask[i:i+batch_size]
-        batch_token_type_ids = token_type_ids[i:i+batch_size]
+    
+    all_pkv = []  # list to store past_key_values from each batch
+    
+    # Process documents in batches
+    for i in tqdm(range(0, num_docs, batch_size), desc="Computing document batch caches", leave=False):
+        batch_input_ids = input_ids[i:i+batch_size].to(device)
+        batch_attention_mask = attention_mask[i:i+batch_size].to(device)
+        batch_token_type_ids = token_type_ids[i:i+batch_size].to(device)
         
-        outputs = model(
-            input_ids=batch_inputs_ids,
-            attention_mask=batch_attention_mask,
-            token_type_ids=batch_token_type_ids,
-            use_cache=True,
-            return_dict=True,
-        )
-        batch_past_key_values = outputs.get("past_key_values", None)
-
-        if batch_past_key_values is None:
+        with torch.no_grad():
+            outputs = model(
+                input_ids=batch_input_ids,
+                attention_mask=batch_attention_mask,
+                token_type_ids=batch_token_type_ids,
+                use_cache=True,
+                return_dict=True,
+            )
+        batch_pkv = outputs.get("past_key_values", None)
+        if batch_pkv is None:
             raise ValueError("The model did not return past_key_values. Ensure that use_cache=True is working.")
-
-    return batch_past_key_values
+        all_pkv.append(batch_pkv)
+    
+    # Aggregate caches from all batches
+    # If the cache is a DynamicCache (has key_cache and value_cache), use its helper method:
+    if hasattr(all_pkv[0], "key_cache") and hasattr(all_pkv[0], "value_cache"):
+        aggregated_cache = DynamicCache.from_batch_splits(all_pkv)
+    else:
+        # Legacy tuple format: tuple of length num_layers,
+        # where each element is a tuple: (key_tensor, value_tensor)
+        num_layers = len(all_pkv[0])
+        agg_keys = []
+        agg_values = []
+        for layer_idx in range(num_layers):
+            keys = [batch_cache[layer_idx][0] for batch_cache in all_pkv]
+            values = [batch_cache[layer_idx][1] for batch_cache in all_pkv]
+            agg_keys.append(torch.cat(keys, dim=0))
+            agg_values.append(torch.cat(values, dim=0))
+        aggregated_cache = (tuple(agg_keys), tuple(agg_values))
+    
+    return aggregated_cache
 
 def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, device: torch.device, batch_size: int = 8):
-    # Every kv states in the kv-caches should be shape of (batch_size, num_heads, seq_len, head_dim)
-    # Check if the batch size of the kv states in the kv_caches is the same as the input batch size.
-    # If it is a DynamicCache class, we need to extract the kv states from it.
-    if isinstance(kv_caches, DynamicCache):
-        if len(kv_caches.key_cache) != len(kv_caches.value_cache):
-            raise ValueError("The length of key_cache and value_cache should be the same.")
-        if len(kv_caches.key_cache) != batch_size:
-            raise ValueError(f"Expected batch size {batch_size} but got {len(kv_caches.key_cache)}")
-    else:
-        # If it is a type of Tuple[Tuple[torch.Tensor]], check the batch size of the kv states.
-        if kv_caches[0][0].size(0) != batch_size:
-            raise ValueError(f"Expected batch size {batch_size} but got {kv_caches[0][0].size(0)}")
-
+    # Determine maximum sequence length from model configuration (if needed)
     if hasattr(model.config, "max_position_embeddings"):
         max_seq_len = model.config.max_position_embeddings
     elif hasattr(model.config, "n_positions"):
@@ -67,22 +76,46 @@ def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, de
     else:
         raise ValueError("Model configuration does not specify a maximum sequence length.")
 
-    queries = [query for i in len(kv_caches)]
+    # Split the kv_caches into smaller chunks, regardless of whether full_batch equals batch_size.
+    if isinstance(kv_caches, DynamicCache):
+        full_batch_size = len(kv_caches.key_cache)
+        split_caches = kv_caches.batch_split(full_batch_size, batch_size)
+    else:
+        # Assume kv_caches is a tuple of key and value caches, each being a tuple of tensors.
+        full_batch_size = kv_caches[0][0].size(0)
+        split_caches = []
+        for i in range(0, full_batch_size, batch_size):
+            split_key = tuple(tensor[i : i + batch_size] for tensor in kv_caches[0])
+            split_value = tuple(tensor[i : i + batch_size] for tensor in kv_caches[1])
+            split_caches.append((split_key, split_value))
 
-    input_ids, token_type_ids, attention_mask = model.prepare_query_input(queries, tokenizer)
+    logits_list = []
+    # Process each split
+    for cache_chunk in split_caches:
+        if isinstance(cache_chunk, DynamicCache):
+            current_batch = len(cache_chunk.key_cache)
+        else:
+            current_batch = cache_chunk[0][0].size(0)
 
-    outputs = model(
-        input_ids=input_ids,
-        token_type_ids=token_type_ids,
-        attention_mask=attention_mask,
-        past_key_values=kv_caches,
-        use_cache=True,
-        return_dict=True
-    )
+        # Create a list of queries matching the current split batch size
+        queries = [query] * current_batch
+        input_ids, token_type_ids, attention_mask = model.prepare_query_input(queries, tokenizer)
+        input_ids = input_ids.to(device)
+        token_type_ids = token_type_ids.to(device)
+        attention_mask = attention_mask.to(device)
 
-    logits = outputs["logits"] # (batch_size, )
+        with torch.no_grad():
+            outputs = model(
+                input_ids=input_ids,
+                token_type_ids=token_type_ids,
+                attention_mask=attention_mask,
+                past_key_values=cache_chunk,
+                use_cache=True,
+                return_dict=True
+            )
+        logits_list.append(outputs["logits"])
 
-    return logits
+    return torch.cat(logits_list, dim=0)
 
 def save_kv_cache(kv_cache_dict: dict, filename: str):
     """

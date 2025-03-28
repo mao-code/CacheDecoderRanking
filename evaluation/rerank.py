@@ -22,7 +22,7 @@ from safetensors.torch import load_file
 from sentence_transformers import CrossEncoder
 
 # Import caching functions from our cache module
-from CDR.cache import build_documents_kv_cache, score_batch_with_kv_cache
+from CDR.cache import get_documents_cache, score_with_cache
 
 def main():
     # Argument parser setup
@@ -181,14 +181,14 @@ def main():
                 # ---------- CDR with Cache evaluation ----------
                 # First, compute the candidate document cache (this time is NOT counted in ranking time)
                 candidate_doc_dict = {doc_id: corpus[doc_id]['text'] for doc_id in candidate_doc_ids}
-                candidate_kv_caches = build_documents_kv_cache(model, candidate_doc_dict, tokenizer, device, batch_size=args.batch_size)
+                candidate_kv_caches = get_documents_cache(model, candidate_doc_dict, tokenizer, device, batch_size=args.batch_size)
                 # Now, measure ranking time for scoring using the cached representations.
                 start_time = time.time()
                 with torch.no_grad():
-                    scores_cache = score_batch_with_kv_cache(
+                    scores_cache = score_with_cache(
                         model,
-                        list(candidate_kv_caches.values()),
-                        [query_text] * len(candidate_kv_caches),
+                        candidate_kv_caches,
+                        query_text,
                         tokenizer,
                         device
                     )

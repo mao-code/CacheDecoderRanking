@@ -2,7 +2,7 @@ import time
 import torch
 from tqdm import tqdm
 import pytrec_eval
-from CDR.cache import build_documents_kv_cache, score_batch_with_kv_cache
+from CDR.cache import get_documents_cache, score_with_cache, build_and_save_documents_cache, score_with_cache_from_file
 
 def beir_evaluate(qrels: dict, results: dict, k_values: list, ignore_identical_ids: bool = True):
     """Evaluates ranking results using BEIR's pytrec_eval."""
@@ -104,7 +104,7 @@ def beir_evaluate_custom(qrels: dict, results: dict, k_values: list, metric: str
     return {}
 
 def evaluate_full_retrieval(model, corpus: dict, queries: dict, qrels: dict,
-                            tokenizer, device, batch_size=2, k_values=[1, 5, 10],
+                            tokenizer, device, batch_size=8, k_values=[1, 5, 10],
                             use_cache=False, candidate_cache=None):
     """
     For each query, scores all documents in the corpus using the loaded model.
@@ -136,14 +136,14 @@ def evaluate_full_retrieval(model, corpus: dict, queries: dict, qrels: dict,
                 else:
                     # Build cache on the fly (cache building time not measured)
                     candidate_doc_dict = {doc_id: corpus[doc_id]['text'] for doc_id in batch_doc_ids}
-                    candidate_kv_cache = build_documents_kv_cache(model, candidate_doc_dict, tokenizer, device, batch_size=len(candidate_doc_dict))
+                    candidate_kv_cache = get_documents_cache(model, candidate_doc_dict, tokenizer, device, batch_size=len(candidate_doc_dict))
                 # Measure only the scoring time with cached representations.
                 start_time = time.time()
                 with torch.no_grad():
-                    batch_scores = score_batch_with_kv_cache(
+                    batch_scores = score_with_cache(
                         model,
-                        list(candidate_kv_cache.values()),
-                        [query] * len(batch_doc_ids),
+                        candidate_kv_cache,
+                        query,
                         tokenizer,
                         device
                     )

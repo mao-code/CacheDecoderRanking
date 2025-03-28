@@ -198,7 +198,7 @@ def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, de
         # Optionally offload the cache back to CPU.
         cache_chunk = move_cache_to_cpu(cache_chunk)
 
-    return torch.cat(logits_list, dim=0), total_score_time
+    return torch.cat(logits_list, dim=0).squeeze(-1).tolist(), total_score_time
 
 def save_kv_cache(kv_cache_dict: dict, filename: str):
     """

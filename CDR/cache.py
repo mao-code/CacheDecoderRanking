@@ -101,14 +101,14 @@ def get_documents_cache(model, documents: dict, tokenizer: PreTrainedTokenizer, 
 
 def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, device: torch.device, batch_size: int = 8):
     # Determine maximum sequence length from model configuration (if needed)
-    if hasattr(model.config, "max_position_embeddings"):
-        max_seq_len = model.config.max_position_embeddings
-    elif hasattr(model.config, "n_positions"):
-        max_seq_len = model.config.n_positions
-    elif hasattr(model.config, "model_max_length"):
-        max_seq_len = model.config.model_max_length
-    else:
-        raise ValueError("Model configuration does not specify a maximum sequence length.")
+    # if hasattr(model.config, "max_position_embeddings"):
+    #     max_seq_len = model.config.max_position_embeddings
+    # elif hasattr(model.config, "n_positions"):
+    #     max_seq_len = model.config.n_positions
+    # elif hasattr(model.config, "model_max_length"):
+    #     max_seq_len = model.config.model_max_length
+    # else:
+    #     raise ValueError("Model configuration does not specify a maximum sequence length.")
 
     # Split the kv_caches into smaller chunks, regardless of whether full_batch equals batch_size.
     if isinstance(kv_caches, DynamicCache):
@@ -134,8 +134,8 @@ def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, de
             current_batch = cache_chunk[0][0].size(0)
             doc_seq_len = cache_chunk[0][0].size(2)
 
-        # Create a cache_position tensor for the current batch
-        cache_position = torch.full((current_batch, 1), doc_seq_len, dtype=torch.long, device=device)
+        query_len = input_ids.size(1)  # number of query tokens
+        position_ids = torch.arange(query_len, device=device).unsqueeze(0) + doc_seq_len
 
         # Move the cache to the target device
         cache_chunk = move_cache_to_gpu(cache_chunk, device)
@@ -154,8 +154,8 @@ def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, de
                 token_type_ids=token_type_ids,
                 attention_mask=attention_mask,
                 past_key_values=cache_chunk,
+                position_ids = position_ids,
                 use_cache=True,
-                cache_position=cache_position,
                 return_dict=True
             )
         elapsed = time.time() - start

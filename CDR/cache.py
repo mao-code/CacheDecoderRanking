@@ -55,7 +55,7 @@ def get_documents_cache(model, documents: dict, tokenizer: PreTrainedTokenizer, 
     input_ids, token_type_ids, attention_mask = model.prepare_documents_input(all_docs, tokenizer)
     num_docs = input_ids.size(0)
     
-    all_pkv = []  # list to store past_key_values from each batch
+    all_pkv = []           # list to store past_key_values from each batch
     
     # Process documents in batches
     for i in tqdm(range(0, num_docs, batch_size), desc="Computing document batch caches", leave=False):
@@ -96,26 +96,18 @@ def get_documents_cache(model, documents: dict, tokenizer: PreTrainedTokenizer, 
             agg_keys.append(torch.cat(keys, dim=0))
             agg_values.append(torch.cat(values, dim=0))
         aggregated_cache = (tuple(agg_keys), tuple(agg_values))
-    
+
     return aggregated_cache
 
 def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, device: torch.device, batch_size: int = 8):
-    # Determine maximum sequence length from model configuration (if needed)
-    # if hasattr(model.config, "max_position_embeddings"):
-    #     max_seq_len = model.config.max_position_embeddings
-    # elif hasattr(model.config, "n_positions"):
-    #     max_seq_len = model.config.n_positions
-    # elif hasattr(model.config, "model_max_length"):
-    #     max_seq_len = model.config.model_max_length
-    # else:
-    #     raise ValueError("Model configuration does not specify a maximum sequence length.")
-
-    # Split the kv_caches into smaller chunks, regardless of whether full_batch equals batch_size.
+    """
+    Scores a query using the pre-computed document caches.
+    The query encoding is appended right after the document cache.
+    """
     if isinstance(kv_caches, DynamicCache):
-        full_batch_size = kv_caches.key_cache[0].size(0) # shape of key_cache: a list of tensors (batch_size, num_heads, seq_length, head_dim)
+        full_batch_size = kv_caches.key_cache[0].size(0)
         split_caches = kv_caches.batch_split(full_batch_size, batch_size)
     else:
-        # Assume kv_caches is a tuple of key and value caches, each being a tuple of tensors.
         full_batch_size = kv_caches[0][0].size(0)
         split_caches = []
         for i in range(0, full_batch_size, batch_size):
@@ -125,47 +117,85 @@ def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, de
 
     logits_list = []
     total_score_time = 0.0
-    # Process each split
+
+    # Retrieve max context length from model configuration.
+    max_context_length = getattr(model.config, "n_positions", None) or getattr(model.config, "max_position_embeddings", None)
+    if max_context_length is None:
+        raise ValueError("Model config must define a context window length (n_positions or max_position_embeddings).")
+    
+    # Process each cache split.
     for cache_chunk in split_caches:
         if isinstance(cache_chunk, DynamicCache):
             current_batch = cache_chunk.key_cache[0].size(0)
+            # Get document sequence length from the cache dimensions.
             doc_seq_len = cache_chunk.key_cache[0].size(2)
         else:
             current_batch = cache_chunk[0][0].size(0)
             doc_seq_len = cache_chunk[0][0].size(2)
 
-
-        # Move the cache to the target device
+        # Move cache to GPU.
         cache_chunk = move_cache_to_gpu(cache_chunk, device)
 
-        # Create a list of queries matching the current split batch size
+        # Prepare the query inputs for the current batch.
+        # We replicate the query so that each document gets the same query.
         queries = [query] * current_batch
-        input_ids, token_type_ids, attention_mask = model.prepare_query_input(queries, tokenizer)
-        input_ids = input_ids.to(device)
-        token_type_ids = token_type_ids.to(device)
-        attention_mask = attention_mask.to(device)
+        query_input_ids, query_token_type_ids, query_attention_mask = model.prepare_query_input(queries, tokenizer)
+        # query_input_ids: (B, query_seq_len)
+        # query_attention_mask: (B, query_seq_len)
+        # query_token_type_ids: (B, query_seq_len)
+        query_input_ids = query_input_ids.to(device)
+        query_token_type_ids = query_token_type_ids.to(device)
+        query_attention_mask = query_attention_mask.to(device)
 
-        query_len = input_ids.size(1)  # number of query tokens
-        # position_ids = torch.arange(query_len, device=device).unsqueeze(0) + doc_seq_len
+        # Determine the actual query length (number of non-padded tokens) per batch element.
+        # Assuming all queries have the same length; use the first element.
+        query_len = int(query_attention_mask.sum(dim=1)[0].item())
+
+        # If document cache and query exceed max context, truncate the document cache.
+        if doc_seq_len + query_len > max_context_length:
+            tokens_to_drop = (doc_seq_len + query_len) - max_context_length
+            # Truncate document cache along the sequence length dimension (dim=2).
+            # Truncate from the beginning of the document cache because there is a [SEP] token in the middle.
+            if isinstance(cache_chunk, DynamicCache):
+                cache_chunk.key_cache = [tensor[:, :, tokens_to_drop:, :].clone() for tensor in cache_chunk.key_cache]
+                cache_chunk.value_cache = [tensor[:, :, tokens_to_drop:, :].clone() for tensor in cache_chunk.value_cache]
+            else:
+                new_keys = []
+                new_values = []
+                for key_tensor in cache_chunk[0]:
+                    new_keys.append(key_tensor[:, :, tokens_to_drop:, :].clone())
+                for value_tensor in cache_chunk[1]:
+                    new_values.append(value_tensor[:, :, tokens_to_drop:, :].clone())
+                cache_chunk = (tuple(new_keys), tuple(new_values))
+            # Update document sequence length after truncation.
+            doc_seq_len = doc_seq_len - tokens_to_drop
+
+        # Build the full attention mask: document part (all ones) concatenated with query's attention mask.
+        # Document part: (current_batch, doc_seq_len)
+        doc_attention_mask = torch.ones((current_batch, doc_seq_len), dtype=torch.long, device=device)
+        full_attention_mask = torch.cat([doc_attention_mask, query_attention_mask], dim=1)  # (B, doc_seq_len+query_seq_len)
+        
+        # Set cache_position so that new query tokens are positioned right after the document tokens.
+        # cache_position: tensor of shape (query_len,) with values [doc_seq_len, doc_seq_len+1, ..., doc_seq_len+query_len-1]
         cache_position = torch.arange(doc_seq_len, doc_seq_len + query_len, device=device)
-
+        
         start = time.time()
         with torch.no_grad():
             outputs = model(
-                input_ids=input_ids,
-                token_type_ids=token_type_ids,
-                attention_mask=attention_mask,
+                input_ids=query_input_ids,            # (B, query_seq_len)
+                token_type_ids=query_token_type_ids,  # (B, query_seq_len)
+                attention_mask=full_attention_mask,   # (B, doc_seq_len+query_seq_len)
                 past_key_values=cache_chunk,
-                # position_ids = position_ids,
-                cache_position=cache_position,
+                cache_position=cache_position,        # (query_len,)
                 use_cache=True,
                 return_dict=True
             )
         elapsed = time.time() - start
         total_score_time += elapsed
+
         logits_list.append(outputs["logits"])
 
-        # Offload the cache back to CPU
+        # Optionally offload the cache back to CPU.
         cache_chunk = move_cache_to_cpu(cache_chunk)
 
     return torch.cat(logits_list, dim=0), total_score_time

@@ -192,7 +192,7 @@ def main():
                 # Now, measure ranking time for scoring using the cached representations.
                 start_time = time.time()
                 with torch.no_grad():
-                    scores_cache, score_time = score_with_cache(
+                    scores, score_time = score_with_cache(
                         model,
                         candidate_kv_caches,
                         query_text,
@@ -204,7 +204,7 @@ def main():
                 total_inference_time_cache += elapsed
                 total_score_time_cache += score_time
                 total_docs_processed_cache += len(candidate_doc_ids)
-                reranked_results_cache[qid] = {doc_id: score for doc_id, score in zip(candidate_doc_ids, scores_cache)}
+                reranked_results_cache[qid] = {doc_id: score for doc_id, score in zip(candidate_doc_ids, scores)}
             elif model_type == "standard":
                 # Standard CrossEncoder reranking
                 pairs = [(query_text, doc) for doc in candidate_docs]
@@ -375,7 +375,7 @@ python -m evaluation.rerank \
   --models cdr:./cdr_finetune_final_pythia_410m_mixed standard:cross-encoder/ms-marco-MiniLM-L-12-v2 \
   --cdr_decoder EleutherAI/pythia-410m \
   --log_file rerank_results.log \
-  --batch_size 8 \
+  --batch_size 16 \
   --top_k 100 \
   --k_values 10 \
   --retrieval_type sparse

@@ -112,7 +112,7 @@ def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, de
 
     # Split the kv_caches into smaller chunks, regardless of whether full_batch equals batch_size.
     if isinstance(kv_caches, DynamicCache):
-        full_batch_size = len(kv_caches.key_cache)
+        full_batch_size = kv_caches.key_cache[0].size(0) # shape of key_cache: a list of tensors (batch_size, num_heads, seq_length, head_dim)
         split_caches = kv_caches.batch_split(full_batch_size, batch_size)
     else:
         # Assume kv_caches is a tuple of key and value caches, each being a tuple of tensors.
@@ -128,14 +128,12 @@ def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, de
     # Process each split
     for cache_chunk in split_caches:
         if isinstance(cache_chunk, DynamicCache):
-            current_batch = len(cache_chunk.key_cache)
+            current_batch = cache_chunk.key_cache[0].size(0)
             doc_seq_len = cache_chunk.key_cache[0].size(2)
         else:
             current_batch = cache_chunk[0][0].size(0)
             doc_seq_len = cache_chunk[0][0].size(2)
 
-        query_len = input_ids.size(1)  # number of query tokens
-        position_ids = torch.arange(query_len, device=device).unsqueeze(0) + doc_seq_len
 
         # Move the cache to the target device
         cache_chunk = move_cache_to_gpu(cache_chunk, device)
@@ -147,6 +145,10 @@ def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, de
         token_type_ids = token_type_ids.to(device)
         attention_mask = attention_mask.to(device)
 
+        query_len = input_ids.size(1)  # number of query tokens
+        # position_ids = torch.arange(query_len, device=device).unsqueeze(0) + doc_seq_len
+        cache_position = torch.arange(doc_seq_len, doc_seq_len + query_len, device=device)
+
         start = time.time()
         with torch.no_grad():
             outputs = model(
@@ -154,7 +156,8 @@ def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, de
                 token_type_ids=token_type_ids,
                 attention_mask=attention_mask,
                 past_key_values=cache_chunk,
-                position_ids = position_ids,
+                # position_ids = position_ids,
+                cache_position=cache_position,
                 use_cache=True,
                 return_dict=True
             )

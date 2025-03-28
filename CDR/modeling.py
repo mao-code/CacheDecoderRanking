@@ -3,6 +3,7 @@ from transformers.cache_utils import Cache, DynamicCache
 import torch
 import torch.nn as nn
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from tqdm import tqdm
 
 class ScoringWrapper(PreTrainedModel):
     # Define config_class to use AutoConfig
@@ -200,7 +201,7 @@ class ScoringWrapper(PreTrainedModel):
         token_type_ids_list = []
         attention_masks_list = []
         
-        for document in documents:
+        for document in tqdm(documents, desc="Tokenizing documents"):
             # Encode document and query without adding special tokens.
             doc_ids = tokenizer.encode(document, add_special_tokens=False)
             
@@ -257,7 +258,7 @@ class ScoringWrapper(PreTrainedModel):
         token_type_ids_list = []
         attention_masks_list = []
         
-        for query in queries:
+        for query in tqdm(queries, desc="Tokenizing queries"):
             query_ids = tokenizer.encode(query, add_special_tokens=False)
             score_id = tokenizer.convert_tokens_to_ids("[SCORE]")
             

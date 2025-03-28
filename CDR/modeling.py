@@ -203,14 +203,10 @@ class ScoringWrapper(PreTrainedModel):
         ) # shape: (batch_size, doc_max_len)
         
         input_ids = inputs["input_ids"]
-        attention_mask = inputs["attention_mask"]
         token_type_ids = torch.zeros_like(input_ids)  # All 0 for doc_ids and [SEP]
+        attention_mask = inputs["attention_mask"]
 
-        input_ids_tensor = torch.tensor(input_ids, dtype=torch.long)
-        token_type_ids_tensor = torch.tensor(attention_mask, dtype=torch.long)
-        attention_mask_tensor = torch.tensor(token_type_ids, dtype=torch.long)
-        
-        return input_ids_tensor, token_type_ids_tensor, attention_mask_tensor
+        return input_ids, token_type_ids, attention_mask
 
     def prepare_query_input(self, queries: list, tokenizer):
         """
@@ -227,14 +223,10 @@ class ScoringWrapper(PreTrainedModel):
         ) # shape: (batch_size, query_max_len)
         
         input_ids = inputs["input_ids"]
-        attention_mask = inputs["attention_mask"]
         token_type_ids = torch.ones_like(input_ids)  # All 1 for query_ids and [SCORE]
-
-        input_ids_tensor = torch.tensor(input_ids, dtype=torch.long)
-        token_type_ids_tensor = torch.tensor(token_type_ids, dtype=torch.long)
-        attention_mask_tensor = torch.tensor(attention_mask, dtype=torch.long)
+        attention_mask = inputs["attention_mask"]
         
-        return input_ids_tensor, token_type_ids_tensor, attention_mask_tensor
+        return input_ids, token_type_ids, attention_mask
 
     def get_input_embeddings(self):
         return self.decoder.get_input_embeddings()

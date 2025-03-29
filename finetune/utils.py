@@ -2,7 +2,8 @@ import random
 from tqdm import tqdm
 
 # Import Pyserini for retrieval.
-from pyserini.search.lucene import LuceneSearcher, FaissSearcher
+from pyserini.search.lucene import LuceneSearcher
+from pyserini.search.faiss import FaissSearcher
 
 def prepare_training_samples_infonce(
     corpus: dict,

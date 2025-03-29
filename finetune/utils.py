@@ -38,13 +38,6 @@ def prepare_training_samples_infonce(
     training_samples = []
     all_doc_ids = list(corpus.keys())
 
-    if index_type == "dense":
-        searcher = FaissSearcher.from_prebuilt_index(index_name, query_encoder)
-    elif index_type == "sparse":
-        searcher = LuceneSearcher.from_prebuilt_index(index_name)
-    else:  
-        raise ValueError(f"Unsupported index type: {index_type}. Use 'dense' or 'sparse'.")
-    
     # Set default file name for caching if not provided.
     if hard_negatives_file is None:
         hard_negatives_file = f"hard_negatives_{index_name}.pkl"
@@ -56,6 +49,14 @@ def prepare_training_samples_infonce(
             hard_negatives = pickle.load(f)
     else:
         print(f"Computing hard negatives using index {index_name} (not found locally)")
+
+        if index_type == "dense":
+            searcher = FaissSearcher.from_prebuilt_index(index_name, query_encoder)
+        elif index_type == "sparse":
+            searcher = LuceneSearcher.from_prebuilt_index(index_name)
+        else:  
+            raise ValueError(f"Unsupported index type: {index_type}. Use 'dense' or 'sparse'.")
+    
         hard_negatives = {}
         # Process queries in parallel using ThreadPoolExecutor.
         qids = [qid for qid in qrels if qid in queries]

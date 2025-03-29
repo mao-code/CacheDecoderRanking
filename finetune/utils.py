@@ -51,9 +51,11 @@ def prepare_training_samples_infonce(
 
     # Load cached hard negatives if available.
     if os.path.exists(hard_negatives_file):
+        print(f"Loading hard negatives from {hard_negatives_file} (locally)")
         with open(hard_negatives_file, "rb") as f:
             hard_negatives = pickle.load(f)
     else:
+        print(f"Computing hard negatives using index {index_name} (not found locally)")
         hard_negatives = {}
         # Process queries in parallel using ThreadPoolExecutor.
         qids = [qid for qid in qrels if qid in queries]

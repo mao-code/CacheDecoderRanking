@@ -306,8 +306,8 @@ if __name__ == "__main__":
     - msmarco-v1-passage.bge-base-en-v1.5 (MS MARCO by BGE)
     - beir-v1.0.0-nq.bge-base-en-v1.5 (NQ by BGE)
     - beir-v1.0.0-hotpotqa.bge-base-en-v1.5 (HotPotQA by BGE)
-    - beir-v1.0.0-quora.bge-base-en-v1.5 (Quora by BGE)
     - beir-v1.0.0-fever.bge-base-en-v1.5 (FEVER by BGE)
+    # - beir-v1.0.0-quora.bge-base-en-v1.5 (Quora by BGE, only dev and test)
 
     # - beir-v1.0.0-fiqa.bge-base-en-v1.5 (FiQA by BGE)
     # - wikipedia-dpr-100w.dkrr-tqa (TriviaQA)

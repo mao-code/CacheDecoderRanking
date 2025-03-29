@@ -154,18 +154,46 @@ def score_with_cache(model, kv_caches, query, tokenizer: PreTrainedTokenizer, de
         # If document cache and query exceed max context, truncate the document cache.
         if doc_seq_len + query_len > max_context_length:
             tokens_to_drop = (doc_seq_len + query_len) - max_context_length
+            new_doc_len = doc_seq_len - tokens_to_drop
+
             # Truncate document cache along the sequence length dimension (dim=2).
             # Truncate from the beginning of the document cache because there is a [SEP] token in the middle.
             if isinstance(cache_chunk, DynamicCache):
-                cache_chunk.key_cache = [tensor[:, :, tokens_to_drop:, :].clone() for tensor in cache_chunk.key_cache]
-                cache_chunk.value_cache = [tensor[:, :, tokens_to_drop:, :].clone() for tensor in cache_chunk.value_cache]
+                cache_chunk.key_cache = [
+                    torch.cat([
+                        tensor[:, :, :new_doc_len - 1, :],
+                        tensor[:, :, doc_seq_len - 1:doc_seq_len, :]  # append the [SEP] token
+                    ], dim=2).clone() if new_doc_len > 1 else tensor[:, :, doc_seq_len - 1:doc_seq_len, :].clone()
+                    for tensor in cache_chunk.key_cache
+                ]
+                cache_chunk.value_cache = [
+                    torch.cat([
+                        tensor[:, :, :new_doc_len - 1, :],
+                        tensor[:, :, doc_seq_len - 1:doc_seq_len, :]
+                    ], dim=2).clone() if new_doc_len > 1 else tensor[:, :, doc_seq_len - 1:doc_seq_len, :].clone()
+                    for tensor in cache_chunk.value_cache
+                ]
             else:
                 new_keys = []
                 new_values = []
                 for key_tensor in cache_chunk[0]:
-                    new_keys.append(key_tensor[:, :, tokens_to_drop:, :].clone())
+                    if new_doc_len > 1:
+                        new_key = torch.cat([
+                            key_tensor[:, :, :new_doc_len - 1, :],
+                            key_tensor[:, :, doc_seq_len - 1:doc_seq_len, :]
+                        ], dim=2).clone()
+                    else:
+                        new_key = key_tensor[:, :, doc_seq_len - 1:doc_seq_len, :].clone()
+                    new_keys.append(new_key)
                 for value_tensor in cache_chunk[1]:
-                    new_values.append(value_tensor[:, :, tokens_to_drop:, :].clone())
+                    if new_doc_len > 1:
+                        new_value = torch.cat([
+                            value_tensor[:, :, :new_doc_len - 1, :],
+                            value_tensor[:, :, doc_seq_len - 1:doc_seq_len, :]
+                        ], dim=2).clone()
+                    else:
+                        new_value = value_tensor[:, :, doc_seq_len - 1:doc_seq_len, :].clone()
+                    new_values.append(new_value)
                 cache_chunk = (tuple(new_keys), tuple(new_values))
             # Update document sequence length after truncation.
             doc_seq_len = doc_seq_len - tokens_to_drop

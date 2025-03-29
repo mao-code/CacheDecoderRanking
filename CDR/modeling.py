@@ -153,10 +153,8 @@ class ScoringWrapper(PreTrainedModel):
                 raise ValueError("max_length is too small to accommodate the query and required special tokens.")
             
             # Truncate document tokens if necessary, leaving the query unchanged.
-            # truncated_doc_ids = doc_ids[:available_doc_length]
-            # Truncate from the beginning to align with cached version
-            truncated_doc_ids = doc_ids[-available_doc_length:]
-            
+            truncated_doc_ids = doc_ids[:available_doc_length]
+
             # Build the final input sequence: truncated_doc_ids + [SEP] + query_ids + [SCORE].
             input_ids = truncated_doc_ids + [tokenizer.sep_token_id] + query_ids + [score_id]
             

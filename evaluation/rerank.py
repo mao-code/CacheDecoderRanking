@@ -345,11 +345,12 @@ def main():
             result["mrr"].get("MRR@10", "-"),
             result["top_k_accuracy"].get("Top_K_Accuracy@10", "-"),
             result["avg_inference_time_ms"],
+            result["avg_score_time_ms"],
             result["throughput_docs_per_sec"]
         ]
         comparison_table.append(row)
 
-    headers = ["Model", "NDCG@10", "MAP@10", "Recall@10", "Precision@10", "MRR@10", "Top_K_Accuracy@10", "Avg Inference Time (ms)", "Throughput (docs/sec)"]
+    headers = ["Model", "NDCG@10", "MAP@10", "Recall@10", "Precision@10", "MRR@10", "Top_K_Accuracy@10", "Avg Inference Time (ms)", "Average Scoring Time (ms)","Throughput (docs/sec)"]
     logger.info("\n" + tabulate(comparison_table, headers=headers, tablefmt="grid"))
 
     # --- Save the comparison table to a CSV file ---

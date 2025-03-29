@@ -15,18 +15,18 @@ from finetune.utils import prepare_training_samples_infonce, prepare_training_sa
 from utils import load_dataset
 from CDR.modeling import ScoringWrapper
 
-# For BCE
-class DocumentRankingTrainer(Trainer):
-    def __init__(self, loss_fn, **kwargs):
-        super().__init__(**kwargs)
-        self.loss_fn = loss_fn
+# # For BCE
+# class DocumentRankingTrainer(Trainer):
+#     def __init__(self, loss_fn, **kwargs):
+#         super().__init__(**kwargs)
+#         self.loss_fn = loss_fn
 
-    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
-        labels = inputs.pop("labels")
-        outputs = model(**inputs, return_dict=True)
-        logits = outputs["logits"].view(-1)
-        loss = self.loss_fn(logits, labels)
-        return (loss, outputs) if return_outputs else loss
+#     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+#         labels = inputs.pop("labels")
+#         outputs = model(**inputs, return_dict=True)
+#         logits = outputs["logits"].view(-1)
+#         loss = self.loss_fn(logits, labels)
+#         return (loss, outputs) if return_outputs else loss
     
 # For InfoNCE
 class DocumentRankingTrainer(Trainer):
@@ -58,7 +58,7 @@ class DocumentRankingTrainer(Trainer):
         logits = logits.view(N_groups, group_size)
         targets = torch.zeros(N_groups, dtype=torch.long, device=logits.device) # Target loss to 0
         
-        tau = 0.1  # Temperature parameter, can be tuned
+        tau = 0.01  # Temperature parameter, can be tuned. Now, according to BGE, we use 0.01.
         logits = logits / tau
         
         loss = nn.CrossEntropyLoss()(logits, targets)
@@ -84,11 +84,11 @@ def main():
     parser.add_argument("--num_train_epochs", type=int, default=1, help="Number of training epochs.")
     parser.add_argument("--per_device_train_batch_size", type=int, default=4, help="Training batch size.")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=8, help="Number of gradient accumulation steps.")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate.")
+    parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate.")
     parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay for optimizer.")
     
     # Evaluation settings.
-    parser.add_argument("--sample_dev_percentage", type=float, default=0.05, help="Percentage of dev queries to sample for evaluation")
+    parser.add_argument("--sample_dev_percentage", type=float, default=0.1, help="Percentage of dev queries to sample for evaluation")
     parser.add_argument("--per_device_eval_batch_size", type=int, default=2, help="Per-device evaluation batch size")
     parser.add_argument("--eval_accumulation_steps", type=int, default=1, help="Evaluation accumulation steps")
     parser.add_argument("--patience", type=int, default=3, help="Number of epochs to wait for improvement before early stopping")
@@ -250,9 +250,9 @@ def main():
         eval_strategy="steps",
         eval_steps=args.validate_every_n_steps,
         logging_dir="./logs_finetune",
-        logging_steps=1,
+        logging_steps=50,
         logging_first_step=True,
-        save_steps=300,
+        save_steps=1000,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
@@ -295,12 +295,28 @@ if __name__ == "__main__":
 
     Ensure per_device_train_batch_size is a multiple of (1 + n_per_query)
 
+    Dense Index names: (FAISS)
+    - msmarco-v1-passage.bge-base-en-v1.5 (MS MARCO by BGE)
+    - beir-v1.0.0-nq.bge-base-en-v1.5 (NQ by BGE)
+    - beir-v1.0.0-hotpotqa.bge-base-en-v1.5 (HotPotQA by BGE)
+    - beir-v1.0.0-quora.bge-base-en-v1.5 (Quora by BGE)
+    - beir-v1.0.0-fever.bge-base-en-v1.5 (FEVER by BGE)
+
+    # - beir-v1.0.0-fiqa.bge-base-en-v1.5 (FiQA by BGE)
+    # - wikipedia-dpr-100w.dkrr-tqa (TriviaQA)
+    
+    Sparse Index names: (Lucene Standard Inverted Indexes)
+    - msmarco-v1-passage
+    - beir-v1.0.0-nq.flat
+    - beir-v1.0.0-hotpotqa.flat
+    - beir-v1.0.0-fiqa.flat
+
     Example usage:
     python -m finetune.finetune \
     --model_name "EleutherAI/pythia-410m" \
-    --datasets "msmarco,nq-train,hotpotqa,fiqa" \
-    --samples_per_dataset "45000,40000,35000,20000" \
-    --index_names "msmarco-v1-passage,beir-v1.0.0-nq.flat,beir-v1.0.0-hotpotqa.flat,beir-v1.0.0-fiqa.flat" \
+    --datasets "msmarco,nq-train,hotpotqa,quora,fever" \
+    --samples_per_dataset "500000,100000,150000,150000" \
+    --index_names "msmarco-v1-passage.bge-base-en-v1.5,beir-v1.0.0-nq.bge-base-en-v1.5,beir-v1.0.0-hotpotqa.bge-base-en-v1.5,beir-v1.0.0-quora.bge-base-en-v1.5,beir-v1.0.0-fever.bge-base-en-v1.5" \
     --n_per_query 7 \
     --num_train_epochs 1 \
     --per_device_train_batch_size 8 \
@@ -310,10 +326,10 @@ if __name__ == "__main__":
     --sample_dev_percentage 0.1 \
     --per_device_eval_batch_size 8 \
     --eval_accumulation_steps 1 \
-    --patience 4 \
-    --validate_every_n_steps 50 \
-    --output_dir "./cdr_finetune_ckpts_pythia_410m_mixed" \
-    --save_model_path "cdr_finetune_final_pythia_410m_mixed" \
+    --patience 10 \
+    --validate_every_n_steps 100 \
+    --output_dir "./cdr_finetune_ckpts_pythia_410m_mixed_dense" \
+    --save_model_path "cdr_finetune_final_pythia_410m_mixed_dense" \
     --run_name "pythia_410m_mixed" \
     --wandb_project "cdr_finetuning_document_ranking" \
     --wandb_entity "nlp-maocode" \

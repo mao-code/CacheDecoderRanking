@@ -79,6 +79,8 @@ def main():
     parser.add_argument("--index_names", type=str,
                         default="msmarco-passage,beir-v1.0.0-nq.flat,beir-v1.0.0-hotpotqa.flat,beir-v1.0.0-fiqa.flat",
                         help="Comma-separated list of index names for each dataset, in the same order as --datasets.")
+    parser.add_argument("--index_type", type=str, default="dense",
+                        help="Type of index to use (dense or sparse).")
     parser.add_argument("--n_per_query", type=int, default=1,
                         help="Number of positive and negative samples to select per query.")
     parser.add_argument("--num_train_epochs", type=int, default=1, help="Number of training epochs.")
@@ -193,7 +195,8 @@ def main():
             qrels_train_sampled,
             n_per_query=args.n_per_query,
             hard_negative=True,
-            index_name=index_name
+            index_name=index_name,
+            index_type=args.index_type,
         )
         logging.info(f"Total samples generated for {dataset_name}: {len(samples)}")
         all_training_samples.extend(samples)
@@ -223,7 +226,8 @@ def main():
         sampled_qrels_dev,
         n_per_query=args.n_per_query,
         hard_negative=True,
-        index_name=primary_index
+        index_name=primary_index,
+        index_type=args.index_type,
     )
     logging.info(f"Total samples generated for dev set: {len(validation_samples)}")
     logging.info(f"First Validation samples: {validation_samples[0]}")
@@ -317,6 +321,7 @@ if __name__ == "__main__":
     --datasets "msmarco,nq-train,hotpotqa,quora,fever" \
     --samples_per_dataset "500000,100000,150000,150000" \
     --index_names "msmarco-v1-passage.bge-base-en-v1.5,beir-v1.0.0-nq.bge-base-en-v1.5,beir-v1.0.0-hotpotqa.bge-base-en-v1.5,beir-v1.0.0-quora.bge-base-en-v1.5,beir-v1.0.0-fever.bge-base-en-v1.5" \
+    --index_type "dense" \
     --n_per_query 7 \
     --num_train_epochs 1 \
     --per_device_train_batch_size 8 \
@@ -330,7 +335,7 @@ if __name__ == "__main__":
     --validate_every_n_steps 100 \
     --output_dir "./cdr_finetune_ckpts_pythia_410m_mixed_dense" \
     --save_model_path "cdr_finetune_final_pythia_410m_mixed_dense" \
-    --run_name "pythia_410m_mixed" \
+    --run_name "pythia_410m_mixed_dense" \
     --wandb_project "cdr_finetuning_document_ranking" \
     --wandb_entity "nlp-maocode" \
     --wandb_api_key "your_wandb_api_key"

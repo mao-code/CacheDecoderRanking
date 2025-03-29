@@ -2,7 +2,7 @@ import random
 from tqdm import tqdm
 
 # Import Pyserini for retrieval.
-from pyserini.search.lucene import LuceneSearcher
+from pyserini.search.lucene import LuceneSearcher, FaissSearcher
 
 def prepare_training_samples_infonce(
     corpus: dict,
@@ -10,11 +10,19 @@ def prepare_training_samples_infonce(
     qrels: dict,
     n_per_query: int = 7,
     hard_negative: bool = False,
-    index_name: str = "msmarco-v1-passage"
+    index_name: str = "msmarco-v1-passage",
+    index_type: str = "dense"
 ):
     training_samples = []
     all_doc_ids = list(corpus.keys())
-    searcher = LuceneSearcher.from_prebuilt_index(index_name)
+
+    if index_type == "dense":
+        searcher = FaissSearcher.from_prebuilt_index(index_name)
+    elif index_type == "sparse":
+        searcher = LuceneSearcher.from_prebuilt_index(index_name)
+    else:  
+        raise ValueError(f"Unsupported index type: {index_type}. Use 'dense' or 'sparse'.")
+
     hard_negatives = {}
     for qid in tqdm(qrels, desc=f"Precomputing hard negatives using index {index_name}"):
         if qid not in queries:

@@ -18,7 +18,7 @@ def prepare_training_samples_infonce(
     all_doc_ids = list(corpus.keys())
 
     if index_type == "dense":
-        searcher = FaissSearcher.from_prebuilt_index(index_name)
+        searcher = FaissSearcher.from_prebuilt_index(index_name, None)
     elif index_type == "sparse":
         searcher = LuceneSearcher.from_prebuilt_index(index_name)
     else:  

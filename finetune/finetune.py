@@ -321,9 +321,9 @@ if __name__ == "__main__":
     Example usage:
     python -m finetune.finetune \
     --model_name "EleutherAI/pythia-410m" \
-    --datasets "msmarco,nq-train,hotpotqa,quora,fever" \
-    --samples_per_dataset "500000,100000,50000,150000,150000" \
-    --index_names "msmarco-v1-passage.bge-base-en-v1.5,beir-v1.0.0-nq.bge-base-en-v1.5,beir-v1.0.0-hotpotqa.bge-base-en-v1.5,beir-v1.0.0-quora.bge-base-en-v1.5,beir-v1.0.0-fever.bge-base-en-v1.5" \
+    --datasets "msmarco,nq-train,hotpotqa,fever" \
+    --samples_per_dataset "650000,100000,50000,150000" \
+    --index_names "msmarco-v1-passage.bge-base-en-v1.5,beir-v1.0.0-nq.bge-base-en-v1.5,beir-v1.0.0-hotpotqa.bge-base-en-v1.5,beir-v1.0.0-fever.bge-base-en-v1.5" \
     --index_type "dense" \
     --quey_encoder "BAAI/bge-base-en-v1.5" \
     --n_per_query 7 \

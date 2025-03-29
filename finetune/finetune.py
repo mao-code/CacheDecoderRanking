@@ -81,6 +81,7 @@ def main():
                         help="Comma-separated list of index names for each dataset, in the same order as --datasets.")
     parser.add_argument("--index_type", type=str, default="dense",
                         help="Type of index to use (dense or sparse).")
+    parser.add_argument("--quey_encoder", type=str, default="BAAI/bge-base-en-v1.5", help="Query encoder model name for dense vectors.")
     parser.add_argument("--n_per_query", type=int, default=1,
                         help="Number of positive and negative samples to select per query.")
     parser.add_argument("--num_train_epochs", type=int, default=1, help="Number of training epochs.")
@@ -197,6 +198,7 @@ def main():
             hard_negative=True,
             index_name=index_name,
             index_type=args.index_type,
+            query_encoder=args.quey_encoder
         )
         logging.info(f"Total samples generated for {dataset_name}: {len(samples)}")
         all_training_samples.extend(samples)
@@ -228,6 +230,7 @@ def main():
         hard_negative=True,
         index_name=primary_index,
         index_type=args.index_type,
+        query_encoder=args.quey_encoder
     )
     logging.info(f"Total samples generated for dev set: {len(validation_samples)}")
     logging.info(f"First Validation samples: {validation_samples[0]}")
@@ -322,6 +325,7 @@ if __name__ == "__main__":
     --samples_per_dataset "500000,100000,50000,150000,150000" \
     --index_names "msmarco-v1-passage.bge-base-en-v1.5,beir-v1.0.0-nq.bge-base-en-v1.5,beir-v1.0.0-hotpotqa.bge-base-en-v1.5,beir-v1.0.0-quora.bge-base-en-v1.5,beir-v1.0.0-fever.bge-base-en-v1.5" \
     --index_type "dense" \
+    --quey_encoder "BAAI/bge-base-en-v1.5" \
     --n_per_query 7 \
     --num_train_epochs 1 \
     --per_device_train_batch_size 8 \

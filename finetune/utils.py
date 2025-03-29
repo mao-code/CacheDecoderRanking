@@ -11,14 +11,15 @@ def prepare_training_samples_infonce(
     qrels: dict,
     n_per_query: int = 7,
     hard_negative: bool = False,
-    index_name: str = "msmarco-v1-passage",
-    index_type: str = "dense"
+    index_name: str = "msmarco-v1-passage.bge-base-en-v1.5",
+    index_type: str = "dense",
+    query_encoder: str = "BAAI/bge-base-en-v1.5",
 ):
     training_samples = []
     all_doc_ids = list(corpus.keys())
 
     if index_type == "dense":
-        searcher = FaissSearcher.from_prebuilt_index(index_name, None)
+        searcher = FaissSearcher.from_prebuilt_index(index_name, query_encoder)
     elif index_type == "sparse":
         searcher = LuceneSearcher.from_prebuilt_index(index_name)
     else:  

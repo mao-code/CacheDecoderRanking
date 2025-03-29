@@ -278,7 +278,7 @@ def main():
         eval_dataset=val_dataset,
         # loss_fn=loss_fn,
         n_per_query=args.n_per_query,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]
+        # callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]
     )
 
     # Train the model.

@@ -31,7 +31,7 @@ def process_prepared_sample(sample, n_per_query):
         while len(negatives) < n_per_query:
             negatives.append(random.choice(negatives))
     else:
-        negatives = random.sample(negatives, n_per_query)
+        negatives = negatives[:n_per_query]
     
     group_samples = []
     # Positive sample first.

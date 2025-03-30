@@ -12,7 +12,7 @@ import torch.nn as nn
 
 from dataset.document_ranking import DocumentRankingDataset
 from finetune.utils import prepare_training_samples_infonce, prepare_training_samples_bce, subsample_dev_set
-from utils import load_dataset
+from utils import load_dataset, MainProcessFilter
 from CDR.modeling import ScoringWrapper
 from finetune.utils import load_prepared_samples, log_training_config
 
@@ -69,6 +69,8 @@ def main():
     parser = argparse.ArgumentParser(description="Fine-tune a scoring model with token type embeddings and a score head.")    
     
     # Training settings.
+    parser.add_argument("--deepspeed_config", type=str, default="deepspeed_config.json",
+                    help="Path to the DeepSpeed configuration file")
     parser.add_argument("--model_name", type=str, default="gpt2-medium", 
                         help="Pre-trained model name (e.g., gpt2-medium, facebook/opt-350m).")
     # Specify multiple datasets.
@@ -128,6 +130,7 @@ def main():
         force=True
     )
     logger = logging.getLogger()
+    logging.getLogger().addFilter(MainProcessFilter())
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     now_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -288,7 +291,7 @@ def main():
         report_to="wandb",
         run_name=run_name,
         remove_unused_columns=False,
-        deepspeed="deepspeed_config.json",
+        deepspeed=args.deepspeed_config,
     )
 
     log_training_config(training_args, logger)
@@ -351,7 +354,7 @@ if __name__ == "__main__":
     --quey_encoder "BAAI/bge-base-en-v1.5" \
 
     Example usage:
-    torchrun --nproc_per_node=2 -m finetune --deepspeed_config deepspeed_config.json \
+    torchrun --nproc_per_node=2 -m finetune.finetune --deepspeed_config deepspeed_config.json \
     --model_name "EleutherAI/pythia-410m" \
     --use_prepared_data \
     --prepared_data_files "datasets/bge_data/split_1/msmarco_hn_train.jsonl,datasets/bge_data/split_1/nq.jsonl,datasets/bge_data/split/fever.json,datasets/bge_data/split/hotpotqa_pairs.json,datasets/bge_data/split/mr-tydi_english.jsonl" \

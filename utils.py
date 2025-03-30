@@ -3,6 +3,7 @@ import logging
 from beir import util
 from beir.datasets.data_loader import GenericDataLoader
 import json
+import torch
 
 def load_dataset(dataset: str, split: str):
     """Loads a BEIR dataset and prefixes ids with the dataset name."""
@@ -24,6 +25,9 @@ def load_dataset(dataset: str, split: str):
     
     return corpus, queries, qrels
 
+import os
+import json
+
 def load_json_file(file_path):
     """
     Load a JSON or JSONL file.
@@ -33,13 +37,28 @@ def load_json_file(file_path):
         data = []
         with open(file_path, "r", encoding="utf-8") as f:
             for line in f:
-                data.append(json.loads(line))
+                if line.strip():
+                    data.append(json.loads(line))
         return data
     elif ext == '.json':
         with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data
+            content = f.read().strip()
+            try:
+                # Try to parse as a single JSON structure
+                return json.loads(content)
+            except json.decoder.JSONDecodeError:
+                # Fallback: treat as JSON Lines if multiple JSON objects are found
+                data = []
+                for line in content.splitlines():
+                    if line.strip():
+                        data.append(json.loads(line))
+                return data
     else:
         raise ValueError(f"Unsupported file extension: {ext}")
 
-
+class MainProcessFilter(logging.Filter):
+    def filter(self, record):
+        # Allow logging only if not in a distributed setup or if this is rank 0.
+        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+            return True
+        return False

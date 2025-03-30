@@ -139,7 +139,7 @@ def main():
         force=True
     )
     logger = logging.getLogger()
-    logger.addFilter(MainProcessFilter())
+    logger.addFilter(MainProcessFilter(args.local_rank))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     now_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

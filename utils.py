@@ -57,8 +57,9 @@ def load_json_file(file_path):
         raise ValueError(f"Unsupported file extension: {ext}")
 
 class MainProcessFilter(logging.Filter):
+    def __init__(self, local_rank):
+        super().__init__()
+        self.local_rank = local_rank
+
     def filter(self, record):
-        # Allow logging only if not in a distributed setup or if this is rank 0.
-        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-            return True
-        return False
+        return self.local_rank == 0

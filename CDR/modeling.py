@@ -110,11 +110,9 @@ class ScoringWrapper(PreTrainedModel):
             }
         
     def prepare_input(self, documents: list, queries: list, tokenizer):
-        """
-        In trianing, make sure the gradient accumulation is set to 1.
-        
+        """        
         Prepares batched inputs for the model by truncating only the document tokens if needed.
-        Pads each example to the maximum sequence length in the batch.
+        Padding is done to the longest sequence in the batch.
         """
         # Retrieve the maximum allowed sequence length from the model's config.
         max_config_length = getattr(self.config, 'n_positions', None) or getattr(self.config, 'max_position_embeddings', None)
@@ -179,7 +177,6 @@ class ScoringWrapper(PreTrainedModel):
         
         return input_ids_tensor, token_type_ids_tensor, attention_mask_tensor
 
-    
     # TODO: Pad should Pad to the end of the input sequence, not the doc part. Can be optimized in the future.
     def prepare_documents_input(self, documents: list, tokenizer):
         """

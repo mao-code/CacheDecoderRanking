@@ -37,15 +37,12 @@ class DocumentRankingTrainer(Trainer):
         self.tokenizer = tokenizer
 
     def get_train_dataloader(self):
-        pad_collator = DataCollatorWithPadding(self.tokenizer)
-
         return DataLoader(
             self.train_dataset,
             batch_size=self.args.per_device_train_batch_size,
             shuffle=False,
             drop_last=True,
-            # collate_fn=self.data_collator,
-            collate_fn=pad_collator,
+            collate_fn=self.data_collator,
             num_workers=self.args.dataloader_num_workers,
             pin_memory=self.args.dataloader_pin_memory,
         )
@@ -311,12 +308,14 @@ def main():
 
     log_training_config(training_args, logger)
 
-    # loss_fn = nn.BCEWithLogitsLoss()
     # Initialize our custom Trainer.
+    # Define the data collator with padding
+    data_collator = DataCollatorWithPadding(tokenizer)
     trainer = DocumentRankingTrainer(
         model=scoring_model,
         args=training_args,
         train_dataset=train_dataset,
+        data_collator=data_collator
         eval_dataset=val_dataset,
         n_per_query=args.n_per_query,
         tokenizer=tokenizer

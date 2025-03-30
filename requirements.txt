@@ -12,3 +12,6 @@ tabulate
 
 flash-attn
 
+deepspeed
+
+huggingface_hub

@@ -47,7 +47,10 @@ class DocumentRankingTrainer(Trainer):
             pin_memory=self.args.dataloader_pin_memory,
         )
     
-    def get_eval_dataloader(self):
+    def get_eval_dataloader(self, eval_dataset=None, **kwargs):
+        if eval_dataset is None:
+            eval_dataset = self.eval_dataset
+
         return DataLoader(
             self.eval_dataset,
             batch_size=self.args.per_device_eval_batch_size,

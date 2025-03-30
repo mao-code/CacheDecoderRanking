@@ -5,7 +5,7 @@ from datetime import datetime
 import math
 import random
 
-from transformers import AutoModel, AutoTokenizer, AutoConfig, TrainingArguments, Trainer, EarlyStoppingCallback
+from transformers import AutoModel, AutoTokenizer, AutoConfig, TrainingArguments, Trainer, EarlyStoppingCallback, DataCollatorWithPadding
 from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
@@ -31,17 +31,19 @@ from finetune.utils import load_prepared_samples, log_training_config
     
 # For InfoNCE
 class DocumentRankingTrainer(Trainer):
-    def __init__(self, n_per_query, **kwargs):
+    def __init__(self, n_per_query, tokenizer, **kwargs):
         super().__init__(**kwargs)
         self.n_per_query = n_per_query
+        self.tokenizer = tokenizer
 
     def get_train_dataloader(self):
+        data_collator = DataCollatorWithPadding(self.tokenizer)
         return DataLoader(
             self.train_dataset,
             batch_size=self.args.per_device_train_batch_size,
             shuffle=False,
             drop_last=True,
-            collate_fn=self.data_collator,
+            collate_fn=data_collator,
             num_workers=self.args.dataloader_num_workers,
             pin_memory=self.args.dataloader_pin_memory,
         )
@@ -151,24 +153,25 @@ def main():
         raise ValueError("The number of datasets, samples_per_dataset, and index_names must match.")
 
     # Initialize Wandb.
-    if is_main_process():
-        wandb.login(key=args.wandb_api_key)
-        wandb.init(
-            project=args.wandb_project,
-            entity=args.wandb_entity,
-            name=run_name,
-            config={
-                "model_name": args.model_name,
-                "datasets": datasets_list,
-                "samples_per_dataset": samples_list,
-                "index_names": index_names_list,
-                "n_per_query": args.n_per_query,
-                "learning_rate": args.lr,
-                "per_device_train_batch_size": args.per_device_train_batch_size,
-                "gradient_accumulation_steps": args.gradient_accumulation_steps,
-                "num_train_epochs": args.num_train_epochs
-            }
-        )
+    # Use 'export WANDB_API_KEY="your_wandb_api_key"'
+    # if is_main_process():
+    #     wandb.login(key=args.wandb_api_key)
+    #     wandb.init(
+    #         project=args.wandb_project,
+    #         entity=args.wandb_entity,
+    #         name=run_name,
+    #         config={
+    #             "model_name": args.model_name,
+    #             "datasets": datasets_list,
+    #             "samples_per_dataset": samples_list,
+    #             "index_names": index_names_list,
+    #             "n_per_query": args.n_per_query,
+    #             "learning_rate": args.lr,
+    #             "per_device_train_batch_size": args.per_device_train_batch_size,
+    #             "gradient_accumulation_steps": args.gradient_accumulation_steps,
+    #             "num_train_epochs": args.num_train_epochs
+    #         }
+    #     )
 
     # Load tokenizer and model
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)

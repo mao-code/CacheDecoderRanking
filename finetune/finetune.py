@@ -37,13 +37,12 @@ class DocumentRankingTrainer(Trainer):
         self.tokenizer = tokenizer
 
     def get_train_dataloader(self):
-        data_collator = DataCollatorWithPadding(self.tokenizer)
         return DataLoader(
             self.train_dataset,
             batch_size=self.args.per_device_train_batch_size,
             shuffle=False,
             drop_last=True,
-            collate_fn=data_collator,
+            collate_fn=self.args.data_collator,
             num_workers=self.args.dataloader_num_workers,
             pin_memory=self.args.dataloader_pin_memory,
         )
@@ -365,6 +364,11 @@ if __name__ == "__main__":
     --index_names "msmarco-v1-passage.bge-base-en-v1.5,beir-v1.0.0-nq.bge-base-en-v1.5,beir-v1.0.0-fever.bge-base-en-v1.5,beir-v1.0.0-hotpotqa.bge-base-en-v1.5" \
     --index_type "dense" \
     --quey_encoder "BAAI/bge-base-en-v1.5" \
+    
+    If you want to use wandb and don't want to set the environment variables, add the following arguments:
+    --wandb_project "your_project_name" \
+    --wandb_entity "your_group_name" \
+    --wandb_api_key "your_wandb_api_key"
 
     Example usage:
     deepspeed --module finetune.finetune \
@@ -386,10 +390,7 @@ if __name__ == "__main__":
     --validate_every_n_steps 100 \
     --output_dir "./cdr_finetune_ckpts_pythia_410m_bgedata" \
     --save_model_path "cdr_finetune_final_pythia_410m_bgedata" \
-    --run_name "pythia_410m_mixed_dense" \
-    --wandb_project "cdr_finetuning_document_ranking" \
-    --wandb_entity "nlp-maocode" \
-    --wandb_api_key "your_wandb_api_key"
+    --run_name "pythia_410m_mixed_bge_data"
     """
 
 

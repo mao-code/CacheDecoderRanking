@@ -3,6 +3,11 @@ import argparse
 import os
 
 if __name__ == "__main__":
+    """
+    Example usage:
+    python -m script.bge_dataset_download --dataset_name Shitao/bge-reranker-data --output_dir datasets
+    """
+
     parser = argparse.ArgumentParser(description="Download datasets from Hugging Face Hub.")
     parser.add_argument(
         "--dataset_name",

@@ -102,8 +102,8 @@ def main():
     # Specify multiple datasets.
     parser.add_argument("--datasets", type=str, default="msmarco,nq-train,hotpotqa,fiqa",
                         help="Comma-separated list of dataset names to use for training (e.g., ms_marco,nq,hotpotqa,fiqa).")
-    parser.add_argument("--samples_per_dataset", type=str, default="-1,-1,-1,-1",
-                        help="Comma-separated list of number of training samples to use per dataset in the same order as --datasets. Use -1 to use all available samples.")
+    parser.add_argument("--samples_per_dataset", type=str, default="0,0,0,0",
+                        help="Comma-separated list of number of training samples to use per dataset in the same order as --datasets. Use 0 to use all available samples.")
     # Accept a comma-separated list of index names corresponding to each dataset.
     parser.add_argument("--index_names", type=str,
                         default="msmarco-passage,beir-v1.0.0-nq.flat,beir-v1.0.0-hotpotqa.flat,beir-v1.0.0-fiqa.flat",
@@ -140,8 +140,8 @@ def main():
                         default="datasets/bge_data/split_1/msmarco_hn_train.jsonl,datasets/bge_data/split_1/nq.jsonl,datasets/bge_data/split/fever.json,datasets/bge_data/split/hotpotqa_pairs.json,datasets/bge_data/split/mr-tydi_english.jsonl",
                         help="Comma-separated list of file paths for the prepared dataset in the desired order.")
     parser.add_argument("--prepared_data_sample_counts", type=str,
-                        default="-1,-1,-1,-1,-1",
-                        help="Comma-separated list of sample counts for each prepared dataset file in the same order. Use -1 to use all available samples.")
+                        default="0,0,0,0,0",
+                        help="Comma-separated list of sample counts for each prepared dataset file in the same order. Use 0 to use all available samples.")
 
     args = parser.parse_args()
 
@@ -411,7 +411,7 @@ if __name__ == "__main__":
     --model_name "EleutherAI/pythia-410m" \
     --use_prepared_data \
     --prepared_data_files "datasets/bge_data/split_1/msmarco_hn_train.jsonl,datasets/bge_data/split_1/nq.jsonl,datasets/bge_data/split/fever.json,datasets/bge_data/split/hotpotqa_pairs.json,datasets/bge_data/split/mr-tydi_english.jsonl,datasets/bge_data/split/nli_simcse.json" \
-    --prepared_data_sample_counts "-1,-1,-1,-1,-1,-1" \
+    --prepared_data_sample_counts "0,0,0,0,0,0" \
     --n_per_query 15 \
     --num_train_epochs 1 \
     --per_device_train_batch_size 32 \

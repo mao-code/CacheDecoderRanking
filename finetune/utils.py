@@ -59,7 +59,7 @@ def load_prepared_samples(file_paths, sample_counts, n_per_query, logger):
     for file_path, sample_count in zip(file_paths, sample_counts):
         data = load_json_file(file_path)
 
-        if sample_count == -1:
+        if sample_count <=0:
             sample_count = len(data)
 
         if len(data) < sample_count:

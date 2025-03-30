@@ -129,7 +129,7 @@ def main():
     args = parser.parse_args()
 
     logging.basicConfig(
-        level=logging.INFO,
+        level=logger.info,
         format="%(asctime)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         handlers=[
@@ -190,7 +190,7 @@ def main():
     scoring_model.decoder.resize_token_embeddings(len(tokenizer))
     scoring_model.to(device)
     num_params = sum(p.numel() for p in scoring_model.parameters())
-    print(f"Number of parameters: {num_params}")
+    logger.info(f"Number of parameters: {num_params}")
 
     if args.use_prepared_data:
         # Parse file paths and sample counts.
@@ -213,10 +213,10 @@ def main():
 
         all_training_samples = []
         for dataset_name, sample_count, index_name in zip(datasets_list, samples_list, index_names_list):
-            logging.info(f"Loading dataset: {dataset_name} (train split)")
-            corpus_train, queries_train, qrels_train = load_dataset(dataset_name, split="train")
-            logging.info(f"Using index '{index_name}' for dataset: {dataset_name}")
-            logging.info(f"Preparing training samples for dataset: {dataset_name}")
+            logger.info(f"Loading dataset: {dataset_name} (train split)")
+            corpus_train, queries_train, qrels_train = load_dataset(logger, dataset_name, split="train")
+            logger.info(f"Using index '{index_name}' for dataset: {dataset_name}")
+            logger.info(f"Preparing training samples for dataset: {dataset_name}")
 
             if sample_count > 0 and sample_count < len(qrels_train):
                 sampled_qids = random.sample(list(qrels_train.keys()), sample_count)
@@ -225,7 +225,7 @@ def main():
             else:
                 qrels_train_sampled = qrels_train
                 queries_train_sampled = queries_train
-            logging.info(f"Number of queries in the sampled training set: {len(queries_train_sampled)}")
+            logger.info(f"Number of queries in the sampled training set: {len(queries_train_sampled)}")
 
             samples = prepare_training_samples_infonce(
                 corpus_train,
@@ -237,10 +237,10 @@ def main():
                 index_type=args.index_type,
                 query_encoder=args.quey_encoder
             )
-            logging.info(f"Total samples generated for {dataset_name}: {len(samples)}")
+            logger.info(f"Total samples generated for {dataset_name}: {len(samples)}")
             all_training_samples.extend(samples)
-        logging.info(f"Total mixed training samples: {len(all_training_samples)}")
-        logging.info(f"First Training samples: {all_training_samples[:1 + args.n_per_query]}")
+        logger.info(f"Total mixed training samples: {len(all_training_samples)}")
+        logger.info(f"First Training samples: {all_training_samples[:1 + args.n_per_query]}")
     
     # Create PyTorch Dataset for training.
     train_dataset = DocumentRankingDataset(all_training_samples, tokenizer, scoring_model)
@@ -251,8 +251,8 @@ def main():
     # ----------------------------------------------------------
     dev_dataset = "msmarco"
     dev_index = "msmarco-v1-passage"
-    logging.info(f"Loading dev set from primary dataset: {dev_dataset}")
-    corpus_dev, queries_dev, qrels_dev = load_dataset(dev_dataset, split="dev")
+    logger.info(f"Loading dev set from primary dataset: {dev_dataset}")
+    corpus_dev, queries_dev, qrels_dev = load_dataset(logger, dev_dataset, split="dev")
     sampled_queries_dev, sampled_qrels_dev = subsample_dev_set(
         queries_dev, qrels_dev, sample_percentage=args.sample_dev_percentage
     )
@@ -268,8 +268,8 @@ def main():
         index_name=dev_index,
         index_type="sparse"
     )
-    logging.info(f"Total samples generated for dev set: {len(validation_samples)}")
-    logging.info(f"First Validation samples: {validation_samples[0]}")
+    logger.info(f"Total samples generated for dev set: {len(validation_samples)}")
+    logger.info(f"First Validation samples: {validation_samples[0]}")
     val_dataset = DocumentRankingDataset(validation_samples, tokenizer, scoring_model)
 
     total_training_steps = math.ceil(
@@ -324,7 +324,7 @@ def main():
     if is_main_process():
         # Save the final model.
         trainer.save_model(args.save_model_path)
-        logging.info("Training completed and best model saved.")
+        logger.info("Training completed and best model saved.")
         wandb.finish()
 
 if __name__ == "__main__":

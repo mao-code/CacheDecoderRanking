@@ -5,16 +5,16 @@ from beir.datasets.data_loader import GenericDataLoader
 import json
 import torch
 
-def load_dataset(dataset: str, split: str):
+def load_dataset(logger, dataset: str, split: str):
     """Loads a BEIR dataset and prefixes ids with the dataset name."""
     out_dir = "datasets"
     data_path = os.path.join(out_dir, dataset)
     if not os.path.exists(data_path):
-        logging.info(f"Dataset '{dataset}' not found locally. Downloading...")
+        logger.info(f"Dataset '{dataset}' not found locally. Downloading...")
         url = f"https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/{dataset}.zip"
         data_path = util.download_and_unzip(url, out_dir)
     else:
-        logging.info(f"Dataset '{dataset}' found locally. Skipping download.")
+        logger.info(f"Dataset '{dataset}' found locally. Skipping download.")
     corpus, queries, qrels = GenericDataLoader(data_folder=data_path).load(split=split)
     
     # Prefix each doc_id in corpus, and update queries and qrels accordingly.

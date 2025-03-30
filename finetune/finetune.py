@@ -47,30 +47,29 @@ class DocumentRankingTrainer(Trainer):
             pin_memory=self.args.dataloader_pin_memory,
         )
     
-    def get_eval_dataloader(self, eval_dataset=None, **kwargs):
-        if eval_dataset is None:
-            eval_dataset = self.eval_dataset
+    # def get_eval_dataloader(self, eval_dataset=None, **kwargs):
+    #     if eval_dataset is None:
+    #         eval_dataset = self.eval_dataset
 
-        return DataLoader(
-            eval_dataset,
-            batch_size=self.args.per_device_eval_batch_size,
-            shuffle=False,
-            drop_last=True,  # Ensure batch size is a multiple of (1 + n_per_query)
-            collate_fn=self.data_collator,
-            num_workers=self.args.dataloader_num_workers,
-            pin_memory=self.args.dataloader_pin_memory,
-        )
+    #     return DataLoader(
+    #         eval_dataset,
+    #         batch_size=self.args.per_device_eval_batch_size,
+    #         shuffle=False,
+    #         drop_last=False,
+    #         collate_fn=self.data_collator,
+    #         num_workers=self.args.dataloader_num_workers,
+    #         pin_memory=self.args.dataloader_pin_memory,
+    #     )
 
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         labels = inputs.pop("labels")  # Not used in this loss
         outputs = model(**inputs, return_dict=True)
         logits = outputs["logits"].view(-1)
-
-        print(f"Logits min: {logits.min().item()}, max: {logits.max().item()}")
         
         group_size = 1 + self.n_per_query
 
         if len(logits) % group_size != 0:
+            print(f"Batch size {len(logits)} must be a multiple of {group_size}")
             raise ValueError(f"Batch size {len(logits)} must be a multiple of {group_size}")
         
         N_groups = len(logits) // group_size
@@ -277,34 +276,30 @@ def main():
     train_dataset = DocumentRankingDataset(all_training_samples, tokenizer, scoring_model)
 
     # ----------------------------------------------------------
-    # Prepare a dev set.
-    # Here we use the dev split from the first (primary) dataset.
+    # Prepare a validation set.
     # ----------------------------------------------------------
-    dev_dataset = "msmarco"
-    dev_index = "msmarco-v1-passage.bge-base-en-v1.5"
-    logger.info(f"Loading dev set from primary dataset: {dev_dataset}")
-    corpus_dev, queries_dev, qrels_dev = load_dataset(logger, dev_dataset, split="dev")
-    sampled_queries_dev, sampled_qrels_dev = subsample_dev_set(
-        queries_dev, qrels_dev, sample_percentage=args.sample_dev_percentage
-    )
+    # dev_dataset = "msmarco"
+    # dev_index = "msmarco-v1-passage.bge-base-en-v1.5"
+    # logger.info(f"Loading dev set from primary dataset: {dev_dataset}")
+    # corpus_dev, queries_dev, qrels_dev = load_dataset(logger, dev_dataset, split="dev")
+    # sampled_queries_dev, sampled_qrels_dev = subsample_dev_set(
+    #     queries_dev, qrels_dev, sample_percentage=args.sample_dev_percentage
+    # )
 
-    validation_samples = prepare_training_samples_infonce(
-        corpus_dev,
-        sampled_queries_dev,
-        sampled_qrels_dev,
-        n_per_query=args.n_per_query,
-        hard_negative=True,
-        index_name=dev_index,
-        index_type="dense",
-        query_encoder="BAAI/bge-base-en-v1.5"
-    )
-    logger.info(f"Total samples generated for dev set: {len(validation_samples)}")
-    logger.info(f"First Validation samples: {validation_samples[0]}")
-    if len(validation_samples) % group_size != 0:
-        logger.warning(f"Validation samples ({len(validation_samples)}) not divisible by group size ({group_size})")
-    val_dataset = DocumentRankingDataset(validation_samples, tokenizer, scoring_model)
-    if len(val_dataset) % group_size != 0:
-        logger.warning(f"Validation dataset size ({len(val_dataset)}) not divisible by {group_size}")
+    # validation_samples = prepare_training_samples_infonce(
+    #     corpus_dev,
+    #     sampled_queries_dev,
+    #     sampled_qrels_dev,
+    #     n_per_query=args.n_per_query,
+    #     hard_negative=True,
+    #     index_name=dev_index,
+    #     index_type="dense",
+    #     query_encoder="BAAI/bge-base-en-v1.5"
+    # )
+    # logger.info(f"Total samples generated for dev set: {len(validation_samples)}")
+    # logger.info(f"First Validation samples: {validation_samples[0]}")
+
+    # val_dataset = DocumentRankingDataset(validation_samples, tokenizer, scoring_model)
 
     total_training_steps = math.ceil(
         len(train_dataset) / (args.per_device_train_batch_size * args.gradient_accumulation_steps)
@@ -322,17 +317,17 @@ def main():
         learning_rate=args.lr,
         warmup_steps=warmup_steps,
         weight_decay=args.weight_decay,
-        per_device_eval_batch_size=args.per_device_eval_batch_size,
-        eval_accumulation_steps=args.eval_accumulation_steps,
-        eval_strategy="steps",
-        eval_steps=args.validate_every_n_steps,
+        # per_device_eval_batch_size=args.per_device_eval_batch_size,
+        # eval_accumulation_steps=args.eval_accumulation_steps,
+        # eval_strategy="steps",
+        # eval_steps=args.validate_every_n_steps,
         logging_dir="./logs_finetune",
         logging_steps=50,
         logging_first_step=True,
         save_steps=1000,
-        load_best_model_at_end=True,
-        metric_for_best_model="eval_loss",
-        greater_is_better=False,
+        # load_best_model_at_end=True,
+        # metric_for_best_model="eval_loss",
+        # greater_is_better=False,
         report_to="wandb",
         run_name=run_name,
         remove_unused_columns=False,
@@ -349,7 +344,7 @@ def main():
         args=training_args,
         train_dataset=train_dataset,
         data_collator=data_collator,
-        eval_dataset=val_dataset,
+        # eval_dataset=val_dataset,
         n_per_query=args.n_per_query,
         tokenizer=tokenizer
         # callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]
@@ -414,8 +409,8 @@ if __name__ == "__main__":
     --prepared_data_sample_counts "0,0,0,0,0,0" \
     --n_per_query 15 \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 32 \
-    --gradient_accumulation_steps 1 \
+    --per_device_train_batch_size 16 \
+    --gradient_accumulation_steps 2 \
     --lr 1e-5 \
     --weight_decay 0.01 \
     --sample_dev_percentage 0.1 \

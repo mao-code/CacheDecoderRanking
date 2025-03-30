@@ -112,23 +112,11 @@ class ScoringWrapper(PreTrainedModel):
     def prepare_input(self, documents: list, queries: list, tokenizer):
         """
         Prepares batched inputs for the model by truncating only the document tokens if needed.
-
-        Args:
-            documents (List[str]): List of document texts.
-            queries (List[str]): List of query texts.
-            tokenizer: The tokenizer (must have attributes: cls_token_id, sep_token_id, pad_token_id,
-                    and method: encode()).
-            max_length (int): Maximum sequence length (including special tokens).
-
-        Returns:
-            input_ids_tensor (torch.LongTensor): Tensor of token IDs with shape (batch_size, seq_length).
-            token_type_ids_tensor (torch.LongTensor): Tensor of token type IDs with shape (batch_size, seq_length).
+        Pads each example to the maximum sequence length in the batch.
         """
-        # Retrieve max_length from the model's configuration
-        max_length = getattr(self.config, 'n_positions', None)
-        if max_length is None:
-            max_length = getattr(self.config, 'max_position_embeddings', None)
-        if max_length is None:
+        # Retrieve the maximum allowed sequence length from the model's config.
+        max_config_length = getattr(self.config, 'n_positions', None) or getattr(self.config, 'max_position_embeddings', None)
+        if max_config_length is None:
             raise ValueError(
                 "The model's configuration does not specify a maximum sequence length. "
                 "Please use a model that defines 'n_positions' or 'max_position_embeddings'."
@@ -136,55 +124,59 @@ class ScoringWrapper(PreTrainedModel):
 
         input_ids_list = []
         token_type_ids_list = []
-        attention_masks_list = []
         
+        # Process each document-query pair.
         for document, query in zip(documents, queries):
-            # Encode document and query without adding special tokens.
+            # Encode without adding special tokens.
             doc_ids = tokenizer.encode(document, add_special_tokens=False)
             query_ids = tokenizer.encode(query, add_special_tokens=False)
             score_id = tokenizer.convert_tokens_to_ids("[SCORE]")
             
-            # Calculate available tokens for the document.
-            # Reserve tokens for [SCORE] and [SEP] plus the query tokens.
-            reserved_tokens = 2 + len(query_ids)  # [SEP], [SCORE]
-            available_doc_length = max_length - reserved_tokens
-            
+            # Reserve tokens for [SEP] and [SCORE] plus all query tokens.
+            reserved_tokens = 2 + len(query_ids)
+            available_doc_length = max_config_length - reserved_tokens
             if available_doc_length < 0:
-                raise ValueError("max_length is too small to accommodate the query and required special tokens.")
+                raise ValueError("max_config_length is too small to accommodate the query and required special tokens.")
             
-            # Truncate document tokens if necessary, leaving the query unchanged.
+            # Truncate document tokens if needed.
             truncated_doc_ids = doc_ids[:available_doc_length]
 
-            # Build the final input sequence: truncated_doc_ids + [SEP] + query_ids + [SCORE].
+            # Build the input sequence: document tokens + [SEP] + query tokens + [SCORE]
             input_ids = truncated_doc_ids + [tokenizer.sep_token_id] + query_ids + [score_id]
+            input_ids_list.append(input_ids)
             
-            # Create token type IDs:
-            # Token type 0 for document tokens, and [SEP]; 1 for query tokens and [SCORE].
+            # Create token type IDs: 0 for document part (including [SEP]), 1 for query part (including [SCORE])
             doc_part_length = len(truncated_doc_ids) + 1
             query_part_length = len(query_ids) + 1
             token_type_ids = [0] * doc_part_length + [1] * query_part_length
-            
-            # Pad sequence if necessary.
-            pad_length = max_length - len(input_ids)
-            if pad_length > 0:
-                # For fine-tuning, we pad to the right.
-                input_ids += [tokenizer.pad_token_id] * pad_length
-                token_type_ids += [0] * pad_length
-
-            attention_mask = [1] * len(input_ids[:max_length - pad_length]) + [0] * pad_length
-            # attention_mask = [1] * len(input_ids)
-
-            input_ids_list.append(input_ids)
             token_type_ids_list.append(token_type_ids)
+        
+        # Determine the maximum sequence length in the current batch.
+        batch_max_length = max(len(ids) for ids in input_ids_list)
+        
+        # Pad each sequence and corresponding token types to the batch maximum.
+        padded_input_ids = []
+        padded_token_type_ids = []
+        attention_masks_list = []
+        
+        for ids, tt_ids in zip(input_ids_list, token_type_ids_list):
+            pad_length = batch_max_length - len(ids)
+            padded_ids = ids + [tokenizer.pad_token_id] * pad_length
+            padded_tt_ids = tt_ids + [0] * pad_length
+            # Create attention mask: 1 for original tokens, 0 for pad tokens.
+            attention_mask = [1] * len(ids) + [0] * pad_length
+            
+            padded_input_ids.append(padded_ids)
+            padded_token_type_ids.append(padded_tt_ids)
             attention_masks_list.append(attention_mask)
         
-        # Convert lists to tensors with shape (batch_size, max_length).
-        input_ids_tensor = torch.tensor(input_ids_list, dtype=torch.long)
-        token_type_ids_tensor = torch.tensor(token_type_ids_list, dtype=torch.long)
+        # Convert lists to tensors.
+        input_ids_tensor = torch.tensor(padded_input_ids, dtype=torch.long)
+        token_type_ids_tensor = torch.tensor(padded_token_type_ids, dtype=torch.long)
         attention_mask_tensor = torch.tensor(attention_masks_list, dtype=torch.long)
         
         return input_ids_tensor, token_type_ids_tensor, attention_mask_tensor
-    
+
     def prepare_documents_input(self, documents: list, tokenizer):
         """
         Prepares batched document inputs.

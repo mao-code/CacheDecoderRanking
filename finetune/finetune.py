@@ -379,8 +379,8 @@ if __name__ == "__main__":
     --prepared_data_sample_counts "650000,100000,150000,50000,20000" \
     --n_per_query 15 \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 16 \
-    --gradient_accumulation_steps 4 \
+    --per_device_train_batch_size 32 \
+    --gradient_accumulation_steps 1 \
     --lr 1e-5 \
     --weight_decay 0.01 \
     --sample_dev_percentage 0.1 \

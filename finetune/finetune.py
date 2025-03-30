@@ -37,12 +37,15 @@ class DocumentRankingTrainer(Trainer):
         self.tokenizer = tokenizer
 
     def get_train_dataloader(self):
+        pad_collator = DataCollatorWithPadding(self.tokenizer)
+
         return DataLoader(
             self.train_dataset,
             batch_size=self.args.per_device_train_batch_size,
             shuffle=False,
             drop_last=True,
-            collate_fn=self.data_collator,
+            # collate_fn=self.data_collator,
+            collate_fn=pad_collator,
             num_workers=self.args.dataloader_num_workers,
             pin_memory=self.args.dataloader_pin_memory,
         )
@@ -384,7 +387,7 @@ if __name__ == "__main__":
     --lr 1e-5 \
     --weight_decay 0.01 \
     --sample_dev_percentage 0.1 \
-    --per_device_eval_batch_size 8 \
+    --per_device_eval_batch_size 16 \
     --eval_accumulation_steps 1 \
     --patience 10 \
     --validate_every_n_steps 100 \

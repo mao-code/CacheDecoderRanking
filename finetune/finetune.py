@@ -315,6 +315,7 @@ def main():
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         n_per_query=args.n_per_query,
+        tokenizer=tokenizer
         # callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]
     )
 

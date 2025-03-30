@@ -165,14 +165,14 @@ class ScoringWrapper(PreTrainedModel):
             token_type_ids = [0] * doc_part_length + [1] * query_part_length
             
             # Pad sequence if necessary.
-            # pad_length = max_length - len(input_ids)
-            # if pad_length > 0:
-            #     # For fine-tuning, we pad to the right.
-            #     input_ids += [tokenizer.pad_token_id] * pad_length
-            #     token_type_ids += [0] * pad_length
+            pad_length = max_length - len(input_ids)
+            if pad_length > 0:
+                # For fine-tuning, we pad to the right.
+                input_ids += [tokenizer.pad_token_id] * pad_length
+                token_type_ids += [0] * pad_length
 
-            # attention_mask = [1] * len(input_ids[:max_length - pad_length]) + [0] * pad_length
-            attention_mask = [1] * len(input_ids)
+            attention_mask = [1] * len(input_ids[:max_length - pad_length]) + [0] * pad_length
+            # attention_mask = [1] * len(input_ids)
 
             input_ids_list.append(input_ids)
             token_type_ids_list.append(token_type_ids)

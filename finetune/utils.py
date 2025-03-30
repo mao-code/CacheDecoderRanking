@@ -48,7 +48,7 @@ def process_prepared_sample(sample, n_per_query):
         })
     return group_samples
 
-def load_prepared_samples(file_paths, sample_counts, n_per_query):
+def load_prepared_samples(file_paths, sample_counts, n_per_query, logger):
     """
     Given a list of file paths and corresponding sample counts (in the desired order),
     load and process each prepared sample.
@@ -57,7 +57,7 @@ def load_prepared_samples(file_paths, sample_counts, n_per_query):
     """
     all_samples = []
     for file_path, sample_count in zip(file_paths, sample_counts):
-        print(f"Loading prepared samples from {file_path} with sample count {sample_count}")
+        logger.info(f"Loading prepared samples from {file_path} with sample count {sample_count}")
         data = load_json_file(file_path)
         # Use the first sample_count samples (preserving order)
         if len(data) > sample_count:

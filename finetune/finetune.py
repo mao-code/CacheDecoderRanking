@@ -77,6 +77,7 @@ def main():
     # Training settings.
     parser.add_argument("--deepspeed_config", type=str, default="deepspeed_config.json",
                     help="Path to the DeepSpeed configuration file")
+    parser.add_argument("--local_rank", type=int, default=-1, help="Local rank for distributed training")
     parser.add_argument("--model_name", type=str, default="gpt2-medium", 
                         help="Pre-trained model name (e.g., gpt2-medium, facebook/opt-350m).")
     # Specify multiple datasets.
@@ -136,7 +137,7 @@ def main():
         force=True
     )
     logger = logging.getLogger()
-    logging.getLogger().addFilter(MainProcessFilter())
+    logger.addFilter(MainProcessFilter())
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     now_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -195,7 +196,7 @@ def main():
         if len(prepared_files) != len(sample_counts):
             raise ValueError("The number of prepared files and sample counts must match.")
         logger.info("Loading prepared training samples from files with specified sample counts...")
-        all_training_samples = load_prepared_samples(prepared_files, sample_counts, args.n_per_query)
+        all_training_samples = load_prepared_samples(prepared_files, sample_counts, args.n_per_query, logger)
         logger.info(f"Total mixed training samples (prepared): {len(all_training_samples)}")
         if len(all_training_samples) > 0:
             logger.info(f"First prepared training sample group: {all_training_samples[:1 + args.n_per_query]}")

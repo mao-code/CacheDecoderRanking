@@ -46,6 +46,17 @@ class DocumentRankingTrainer(Trainer):
             num_workers=self.args.dataloader_num_workers,
             pin_memory=self.args.dataloader_pin_memory,
         )
+    
+    def get_eval_dataloader(self):
+        return DataLoader(
+            self.eval_dataset,
+            batch_size=self.args.per_device_eval_batch_size,
+            shuffle=False,
+            drop_last=True,  # Ensure batch size is a multiple of (1 + n_per_query)
+            collate_fn=self.data_collator,
+            num_workers=self.args.dataloader_num_workers,
+            pin_memory=self.args.dataloader_pin_memory,
+        )
 
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         labels = inputs.pop("labels")  # Not used in this loss

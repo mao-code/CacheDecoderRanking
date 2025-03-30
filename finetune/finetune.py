@@ -65,6 +65,12 @@ class DocumentRankingTrainer(Trainer):
         loss = nn.CrossEntropyLoss()(logits, targets)
         return (loss, outputs) if return_outputs else loss
 
+def is_main_process():
+    # If distributed is not available or not initialized, assume single-process (main)
+    if not torch.distributed.is_available() or not torch.distributed.is_initialized():
+        return True
+    return torch.distributed.get_rank() == 0
+
 def main():
     parser = argparse.ArgumentParser(description="Fine-tune a scoring model with token type embeddings and a score head.")    
     
@@ -144,23 +150,24 @@ def main():
         raise ValueError("The number of datasets, samples_per_dataset, and index_names must match.")
 
     # Initialize Wandb.
-    wandb.login(key=args.wandb_api_key)
-    wandb.init(
-        project=args.wandb_project,
-        entity=args.wandb_entity,
-        name=run_name,
-        config={
-            "model_name": args.model_name,
-            "datasets": datasets_list,
-            "samples_per_dataset": samples_list,
-            "index_names": index_names_list,
-            "n_per_query": args.n_per_query,
-            "learning_rate": args.lr,
-            "per_device_train_batch_size": args.per_device_train_batch_size,
-            "gradient_accumulation_steps": args.gradient_accumulation_steps,
-            "num_train_epochs": args.num_train_epochs
-        }
-    )
+    if is_main_process():
+        wandb.login(key=args.wandb_api_key)
+        wandb.init(
+            project=args.wandb_project,
+            entity=args.wandb_entity,
+            name=run_name,
+            config={
+                "model_name": args.model_name,
+                "datasets": datasets_list,
+                "samples_per_dataset": samples_list,
+                "index_names": index_names_list,
+                "n_per_query": args.n_per_query,
+                "learning_rate": args.lr,
+                "per_device_train_batch_size": args.per_device_train_batch_size,
+                "gradient_accumulation_steps": args.gradient_accumulation_steps,
+                "num_train_epochs": args.num_train_epochs
+            }
+        )
 
     # Load tokenizer and model
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
@@ -300,11 +307,9 @@ def main():
     # Initialize our custom Trainer.
     trainer = DocumentRankingTrainer(
         model=scoring_model,
-        # tokenizer=tokenizer,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
-        # loss_fn=loss_fn,
         n_per_query=args.n_per_query,
         # callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]
     )
@@ -312,10 +317,11 @@ def main():
     # Train the model.
     trainer.train()
 
-    # Save the final model.
-    trainer.save_model(args.save_model_path)
-    logging.info("Training completed and best model saved.")
-    wandb.finish()
+    if is_main_process():
+        # Save the final model.
+        trainer.save_model(args.save_model_path)
+        logging.info("Training completed and best model saved.")
+        wandb.finish()
 
 if __name__ == "__main__":
     main()
@@ -354,7 +360,8 @@ if __name__ == "__main__":
     --quey_encoder "BAAI/bge-base-en-v1.5" \
 
     Example usage:
-    torchrun --nproc_per_node=2 -m finetune.finetune --deepspeed_config deepspeed_config.json \
+    deepspeed --module finetune.finetune \
+    --deepspeed_config deepspeed_config.json \
     --model_name "EleutherAI/pythia-410m" \
     --use_prepared_data \
     --prepared_data_files "datasets/bge_data/split_1/msmarco_hn_train.jsonl,datasets/bge_data/split_1/nq.jsonl,datasets/bge_data/split/fever.json,datasets/bge_data/split/hotpotqa_pairs.json,datasets/bge_data/split/mr-tydi_english.jsonl" \

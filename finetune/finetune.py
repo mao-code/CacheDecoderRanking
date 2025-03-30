@@ -315,7 +315,7 @@ def main():
         model=scoring_model,
         args=training_args,
         train_dataset=train_dataset,
-        data_collator=data_collator
+        data_collator=data_collator,
         eval_dataset=val_dataset,
         n_per_query=args.n_per_query,
         tokenizer=tokenizer

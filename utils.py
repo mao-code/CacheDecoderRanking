@@ -2,6 +2,7 @@ import os
 import logging
 from beir import util
 from beir.datasets.data_loader import GenericDataLoader
+import json
 
 def load_dataset(dataset: str, split: str):
     """Loads a BEIR dataset and prefixes ids with the dataset name."""
@@ -22,5 +23,23 @@ def load_dataset(dataset: str, split: str):
     #              for qid, rels in qrels.items()}
     
     return corpus, queries, qrels
+
+def load_json_file(file_path):
+    """
+    Load a JSON or JSONL file.
+    """
+    ext = os.path.splitext(file_path)[1]
+    if ext == '.jsonl':
+        data = []
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                data.append(json.loads(line))
+        return data
+    elif ext == '.json':
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data
+    else:
+        raise ValueError(f"Unsupported file extension: {ext}")
 
 

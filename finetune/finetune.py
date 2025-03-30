@@ -14,6 +14,7 @@ from dataset.document_ranking import DocumentRankingDataset
 from finetune.utils import prepare_training_samples_infonce, prepare_training_samples_bce, subsample_dev_set
 from utils import load_dataset
 from CDR.modeling import ScoringWrapper
+from finetune.utils import load_prepared_samples, log_training_config
 
 # # For BCE
 # class DocumentRankingTrainer(Trainer):
@@ -104,6 +105,16 @@ def main():
     parser.add_argument("--wandb_project", type=str, default="gfr_finetuning_document_ranking", help="Wandb project name")
     parser.add_argument("--wandb_entity", type=str, default="your_group_name", help="Wandb entity name")
     parser.add_argument("--wandb_api_key", type=str, default="your_wandb_api_key", help="Wandb API key for logging")
+
+    parser.add_argument("--use_prepared_data", action="store_true", 
+                        help="If set, load pre-organized data from prepared files rather than computing hard negatives.")
+    parser.add_argument("--prepared_data_files", type=str,
+                        default="datasets/bge_data/split_1/msmarco_hn_train.jsonl,datasets/bge_data/split_1/nq.jsonl,datasets/bge_data/split/fever.json,datasets/bge_data/split/hotpotqa_pairs.json,datasets/bge_data/split/mr-tydi_english.jsonl",
+                        help="Comma-separated list of file paths for the prepared dataset in the desired order.")
+    parser.add_argument("--prepared_data_sample_counts", type=str,
+                        default="650000,100000,150000,50000,20000",
+                        help="Comma-separated list of sample counts for each prepared dataset file in the same order.")
+
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -167,45 +178,55 @@ def main():
     num_params = sum(p.numel() for p in scoring_model.parameters())
     print(f"Number of parameters: {num_params}")
 
-    # ----------------------------------------------------------
-    # Load and mix training samples from multiple datasets.
-    # ----------------------------------------------------------
-    all_training_samples = []
-    for dataset_name, sample_count, index_name in zip(datasets_list, samples_list, index_names_list):
-        logging.info(f"Loading dataset: {dataset_name} (train split)")
-        corpus_train, queries_train, qrels_train = load_dataset(dataset_name, split="train")
-        logging.info(f"Using index '{index_name}' for dataset: {dataset_name}")
-        logging.info(f"Preparing training samples for dataset: {dataset_name}")
+    if args.use_prepared_data:
+        # Parse file paths and sample counts.
+        prepared_files = [f.strip() for f in args.prepared_data_files.split(",")]
+        sample_counts = [int(s.strip()) for s in args.prepared_data_sample_counts.split(",")]
+        if len(prepared_files) != len(sample_counts):
+            raise ValueError("The number of prepared files and sample counts must match.")
+        logger.info("Loading prepared training samples from files with specified sample counts...")
+        all_training_samples = load_prepared_samples(prepared_files, sample_counts, args.n_per_query)
+        logger.info(f"Total mixed training samples (prepared): {len(all_training_samples)}")
+        if len(all_training_samples) > 0:
+            logger.info(f"First prepared training sample group: {all_training_samples[:1 + args.n_per_query]}")
+    else:
+        # Original: load and mix training samples from multiple datasets.
+        datasets_list = [d.strip() for d in args.datasets.split(",")]
+        samples_list = [int(s.strip()) for s in args.samples_per_dataset.split(",")]
+        index_names_list = [d.strip() for d in args.index_names.split(",")]
+        if not (len(datasets_list) == len(samples_list) == len(index_names_list)):
+            raise ValueError("The number of datasets, samples_per_dataset, and index_names must match.")
 
-        # If sample_count > 0 and lower than available samples, randomly select a subset.
-        if sample_count > 0 and sample_count < len(qrels_train):
-            # Sample a subset of query IDs from qrels_train.
-            sampled_qids = random.sample(list(qrels_train.keys()), sample_count)
-            
-            # Filter the qrels and queries dictionaries to only include the sampled query IDs.
-            qrels_train_sampled = {qid: qrels_train[qid] for qid in sampled_qids}
-            queries_train_sampled = {qid: queries_train[qid] for qid in sampled_qids if qid in queries_train}
-        else:
-            qrels_train_sampled = qrels_train
-            queries_train_sampled = queries_train
-        logging.info(f"Number of queries in the sampled training set: {len(queries_train_sampled)}")
+        all_training_samples = []
+        for dataset_name, sample_count, index_name in zip(datasets_list, samples_list, index_names_list):
+            logging.info(f"Loading dataset: {dataset_name} (train split)")
+            corpus_train, queries_train, qrels_train = load_dataset(dataset_name, split="train")
+            logging.info(f"Using index '{index_name}' for dataset: {dataset_name}")
+            logging.info(f"Preparing training samples for dataset: {dataset_name}")
 
-        samples = prepare_training_samples_infonce(
-            corpus_train,
-            queries_train_sampled,
-            qrels_train_sampled,
-            n_per_query=args.n_per_query,
-            hard_negative=True,
-            index_name=index_name,
-            index_type=args.index_type,
-            query_encoder=args.quey_encoder
-        )
-        logging.info(f"Total samples generated for {dataset_name}: {len(samples)}")
-        all_training_samples.extend(samples)
-    
-    # random.shuffle(all_training_samples) # Do not shuffle for InfoNCE.
-    logging.info(f"Total mixed training samples: {len(all_training_samples)}")
-    logging.info(f"First Training samples: {all_training_samples[0]}")
+            if sample_count > 0 and sample_count < len(qrels_train):
+                sampled_qids = random.sample(list(qrels_train.keys()), sample_count)
+                qrels_train_sampled = {qid: qrels_train[qid] for qid in sampled_qids}
+                queries_train_sampled = {qid: queries_train[qid] for qid in sampled_qids if qid in queries_train}
+            else:
+                qrels_train_sampled = qrels_train
+                queries_train_sampled = queries_train
+            logging.info(f"Number of queries in the sampled training set: {len(queries_train_sampled)}")
+
+            samples = prepare_training_samples_infonce(
+                corpus_train,
+                queries_train_sampled,
+                qrels_train_sampled,
+                n_per_query=args.n_per_query,
+                hard_negative=True,
+                index_name=index_name,
+                index_type=args.index_type,
+                query_encoder=args.quey_encoder
+            )
+            logging.info(f"Total samples generated for {dataset_name}: {len(samples)}")
+            all_training_samples.extend(samples)
+        logging.info(f"Total mixed training samples: {len(all_training_samples)}")
+        logging.info(f"First Training samples: {all_training_samples[:1 + args.n_per_query]}")
     
     # Create PyTorch Dataset for training.
     train_dataset = DocumentRankingDataset(all_training_samples, tokenizer, scoring_model)
@@ -214,23 +235,24 @@ def main():
     # Prepare a dev set.
     # Here we use the dev split from the first (primary) dataset.
     # ----------------------------------------------------------
-    primary_dataset = datasets_list[0]
-    primary_index = index_names_list[0]
-    logging.info(f"Loading dev set from primary dataset: {primary_dataset}")
-    corpus_dev, queries_dev, qrels_dev = load_dataset(primary_dataset, split="dev")
+    dev_dataset = "msmarco"
+    dev_index = "msmarco-v1-passage"
+    logging.info(f"Loading dev set from primary dataset: {dev_dataset}")
+    corpus_dev, queries_dev, qrels_dev = load_dataset(dev_dataset, split="dev")
     sampled_queries_dev, sampled_qrels_dev = subsample_dev_set(
         queries_dev, qrels_dev, sample_percentage=args.sample_dev_percentage
     )
 
+    # For speed, we use sparse index for the dev set.
+    # Note: The index type for the dev set is not important, as we are not using it for training.
     validation_samples = prepare_training_samples_infonce(
         corpus_dev,
         sampled_queries_dev,
         sampled_qrels_dev,
         n_per_query=args.n_per_query,
         hard_negative=True,
-        index_name=primary_index,
-        index_type=args.index_type,
-        query_encoder=args.quey_encoder
+        index_name=dev_index,
+        index_type="sparse"
     )
     logging.info(f"Total samples generated for dev set: {len(validation_samples)}")
     logging.info(f"First Validation samples: {validation_samples[0]}")
@@ -265,8 +287,11 @@ def main():
         greater_is_better=False,
         report_to="wandb",
         run_name=run_name,
-        remove_unused_columns=False
+        remove_unused_columns=False,
+        deepspeed="deepspeed_config.json",
     )
+
+    log_training_config(training_args, logger)
 
     # loss_fn = nn.BCEWithLogitsLoss()
     # Initialize our custom Trainer.
@@ -318,18 +343,23 @@ if __name__ == "__main__":
     - beir-v1.0.0-hotpotqa.flat
     - beir-v1.0.0-fiqa.flat
 
-    Example usage:
-    python -m finetune.finetune \
-    --model_name "EleutherAI/pythia-410m" \
-    --datasets "msmarco,nq-train,hotpotqa,fever" \
-    --samples_per_dataset "650000,100000,50000,150000" \
-    --index_names "msmarco-v1-passage.bge-base-en-v1.5,beir-v1.0.0-nq.bge-base-en-v1.5,beir-v1.0.0-hotpotqa.bge-base-en-v1.5,beir-v1.0.0-fever.bge-base-en-v1.5" \
+    If you want to load the dataset by yourself, add the following arguments:
+    --datasets "msmarco,nq-train,fever,hotpotqa" \
+    --samples_per_dataset "650000,100000,150000,50000" \
+    --index_names "msmarco-v1-passage.bge-base-en-v1.5,beir-v1.0.0-nq.bge-base-en-v1.5,beir-v1.0.0-fever.bge-base-en-v1.5,beir-v1.0.0-hotpotqa.bge-base-en-v1.5" \
     --index_type "dense" \
     --quey_encoder "BAAI/bge-base-en-v1.5" \
-    --n_per_query 7 \
+
+    Example usage:
+    torchrun --nproc_per_node=2 -m finetune --deepspeed_config deepspeed_config.json \
+    --model_name "EleutherAI/pythia-410m" \
+    --use_prepared_data \
+    --prepared_data_files "datasets/bge_data/split_1/msmarco_hn_train.jsonl,datasets/bge_data/split_1/nq.jsonl,datasets/bge_data/split/fever.json,datasets/bge_data/split/hotpotqa_pairs.json,datasets/bge_data/split/mr-tydi_english.jsonl" \
+    --prepared_data_sample_counts "650000,100000,150000,50000,20000" \
+    --n_per_query 15 \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 8 \
-    --gradient_accumulation_steps 16 \
+    --per_device_train_batch_size 16 \
+    --gradient_accumulation_steps 4 \
     --lr 1e-5 \
     --weight_decay 0.01 \
     --sample_dev_percentage 0.1 \
@@ -337,8 +367,8 @@ if __name__ == "__main__":
     --eval_accumulation_steps 1 \
     --patience 10 \
     --validate_every_n_steps 100 \
-    --output_dir "./cdr_finetune_ckpts_pythia_410m_mixed_dense" \
-    --save_model_path "cdr_finetune_final_pythia_410m_mixed_dense" \
+    --output_dir "./cdr_finetune_ckpts_pythia_410m_bgedata" \
+    --save_model_path "cdr_finetune_final_pythia_410m_bgedata" \
     --run_name "pythia_410m_mixed_dense" \
     --wandb_project "cdr_finetuning_document_ranking" \
     --wandb_entity "nlp-maocode" \

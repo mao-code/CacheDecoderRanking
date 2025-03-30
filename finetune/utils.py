@@ -3,10 +3,70 @@ from tqdm import tqdm
 import os
 import pickle
 from concurrent.futures import ThreadPoolExecutor
+import torch
 
 # Import Pyserini for retrieval.
 from pyserini.search.lucene import LuceneSearcher
 from pyserini.search.faiss import FaissSearcher
+
+from utils import load_json_file
+
+def process_prepared_sample(sample, n_per_query):
+    """
+    Convert a single prepared sample (with keys "query", "pos", "neg") into a group of training samples.
+    The positive sample is taken from the first element of "pos".
+    For negatives, if there are not enough, duplicate randomly.
+    Returns a list of dictionaries with keys "query_text", "doc_text", and "label".
+    """
+    # Skip if no positive or no negatives.
+    if not sample.get("pos") or not sample.get("neg"):
+        return []
+    
+    query_text = sample["query"]
+    pos_text = sample["pos"][0]
+    negatives = sample["neg"].copy()  # copy to avoid modifying the original list
+
+    if len(negatives) < n_per_query:
+        # Duplicate negatives if fewer than required.
+        while len(negatives) < n_per_query:
+            negatives.append(random.choice(negatives))
+    else:
+        negatives = random.sample(negatives, n_per_query)
+    
+    group_samples = []
+    # Positive sample first.
+    group_samples.append({
+        "query_text": query_text,
+        "doc_text": pos_text,
+        "label": 1.0
+    })
+    for neg in negatives:
+        group_samples.append({
+            "query_text": query_text,
+            "doc_text": neg,
+            "label": 0.0
+        })
+    return group_samples
+
+def load_prepared_samples(file_paths, sample_counts, n_per_query):
+    """
+    Given a list of file paths and corresponding sample counts (in the desired order),
+    load and process each prepared sample.
+    Returns a list where each query group is represented as consecutive samples
+    (first positive then negatives).
+    """
+    all_samples = []
+    for file_path, sample_count in zip(file_paths, sample_counts):
+        print(f"Loading prepared samples from {file_path} with sample count {sample_count}")
+        data = load_json_file(file_path)
+        # Use the first sample_count samples (preserving order)
+        if len(data) > sample_count:
+            data = data[:sample_count]
+        for sample in tqdm(data, desc=f"Processing {file_path}"):
+            group = process_prepared_sample(sample, n_per_query)
+            if group:
+                all_samples.extend(group)
+    return all_samples
 
 def compute_hard_negatives_for_query(qid, query, qrels, searcher, all_doc_ids):
     """
@@ -216,3 +276,24 @@ def subsample_dev_set(queries_dev: dict, qrels_dev: dict, sample_percentage: flo
     sampled_qrels = {qid: qrels_dev[qid] for qid in sampled_ids if qid in qrels_dev}
     
     return sampled_queries, sampled_qrels
+
+def log_training_config(training_args, logger=None):
+    # Determine the number of GPUs being used.
+    if torch.distributed.is_initialized():
+        num_gpus = torch.distributed.get_world_size()
+    else:
+        num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
+
+    # Calculate the effective (global) batch size.
+    per_device_bs = training_args.per_device_train_batch_size
+    grad_accum_steps = training_args.gradient_accumulation_steps
+    effective_batch_size = per_device_bs * grad_accum_steps * num_gpus
+
+    # Log the configuration details.
+    logger.info("==============================================")
+    logger.info("Training Configuration:")
+    logger.info(f"  Number of GPUs utilized         : {num_gpus}")
+    logger.info(f"  Per-device batch size           : {per_device_bs}")
+    logger.info(f"  Gradient accumulation steps     : {grad_accum_steps}")
+    logger.info(f"  Effective (global) batch size   : {effective_batch_size}")
+    logger.info("==============================================")

@@ -42,7 +42,7 @@ class DocumentRankingTrainer(Trainer):
             batch_size=self.args.per_device_train_batch_size,
             shuffle=False,
             drop_last=True,
-            collate_fn=self.args.data_collator,
+            collate_fn=self.data_collator,
             num_workers=self.args.dataloader_num_workers,
             pin_memory=self.args.dataloader_pin_memory,
         )

@@ -57,8 +57,16 @@ def load_prepared_samples(file_paths, sample_counts, n_per_query, logger):
     """
     all_samples = []
     for file_path, sample_count in zip(file_paths, sample_counts):
-        logger.info(f"Loading prepared samples from {file_path} with sample count {sample_count}")
         data = load_json_file(file_path)
+
+        if sample_count == -1:
+            sample_count = len(data)
+
+        if len(data) < sample_count:
+            logger.warning(f"File {file_path} has fewer samples than requested. Using all available samples.")
+            sample_count = len(data)
+
+        logger.info(f"Loading prepared samples from {file_path} with sample count {sample_count}")
         # Use the first sample_count samples (preserving order)
         if len(data) > sample_count:
             data = data[:sample_count]
@@ -172,6 +180,7 @@ def prepare_training_samples_infonce(
                 'doc_text': corpus[pos_doc_id]['text'],
                 'label': 1.0
             })
+
             # Append negative samples.
             for neg_doc_id in neg_doc_ids:
                 training_samples.append({
@@ -267,7 +276,7 @@ def prepare_training_samples_bce(
     
     return training_samples
 
-def subsample_dev_set(queries_dev: dict, qrels_dev: dict, sample_percentage: float = 0.05):
+def subsample_dev_set(queries_dev: dict, qrels_dev: dict, sample_percentage: float = 0.1):
     dev_query_ids = list(queries_dev.keys())
     num_sample = max(1, int(len(dev_query_ids) * sample_percentage))
     sampled_ids = random.sample(dev_query_ids, num_sample)

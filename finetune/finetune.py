@@ -52,7 +52,7 @@ class DocumentRankingTrainer(Trainer):
             eval_dataset = self.eval_dataset
 
         return DataLoader(
-            self.eval_dataset,
+            eval_dataset,
             batch_size=self.args.per_device_eval_batch_size,
             shuffle=False,
             drop_last=True,  # Ensure batch size is a multiple of (1 + n_per_query)
@@ -65,10 +65,14 @@ class DocumentRankingTrainer(Trainer):
         labels = inputs.pop("labels")  # Not used in this loss
         outputs = model(**inputs, return_dict=True)
         logits = outputs["logits"].view(-1)
+
+        print(f"Logits min: {logits.min().item()}, max: {logits.max().item()}")
         
         group_size = 1 + self.n_per_query
+
         if len(logits) % group_size != 0:
             raise ValueError(f"Batch size {len(logits)} must be a multiple of {group_size}")
+        
         N_groups = len(logits) // group_size
         
         logits = logits.view(N_groups, group_size)
@@ -98,8 +102,8 @@ def main():
     # Specify multiple datasets.
     parser.add_argument("--datasets", type=str, default="msmarco,nq-train,hotpotqa,fiqa",
                         help="Comma-separated list of dataset names to use for training (e.g., ms_marco,nq,hotpotqa,fiqa).")
-    parser.add_argument("--samples_per_dataset", type=str, default="1000,3000,2000,1000",
-                        help="Comma-separated list of number of training samples to use per dataset in the same order as --datasets. Use 0 to use all available samples.")
+    parser.add_argument("--samples_per_dataset", type=str, default="-1,-1,-1,-1",
+                        help="Comma-separated list of number of training samples to use per dataset in the same order as --datasets. Use -1 to use all available samples.")
     # Accept a comma-separated list of index names corresponding to each dataset.
     parser.add_argument("--index_names", type=str,
                         default="msmarco-passage,beir-v1.0.0-nq.flat,beir-v1.0.0-hotpotqa.flat,beir-v1.0.0-fiqa.flat",
@@ -110,14 +114,14 @@ def main():
     parser.add_argument("--n_per_query", type=int, default=1,
                         help="Number of positive and negative samples to select per query.")
     parser.add_argument("--num_train_epochs", type=int, default=1, help="Number of training epochs.")
-    parser.add_argument("--per_device_train_batch_size", type=int, default=4, help="Training batch size.")
+    parser.add_argument("--per_device_train_batch_size", type=int, default=8, help="Training batch size.")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=8, help="Number of gradient accumulation steps.")
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate.")
     parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay for optimizer.")
     
     # Evaluation settings.
     parser.add_argument("--sample_dev_percentage", type=float, default=0.1, help="Percentage of dev queries to sample for evaluation")
-    parser.add_argument("--per_device_eval_batch_size", type=int, default=2, help="Per-device evaluation batch size")
+    parser.add_argument("--per_device_eval_batch_size", type=int, default=8, help="Per-device evaluation batch size")
     parser.add_argument("--eval_accumulation_steps", type=int, default=1, help="Evaluation accumulation steps")
     parser.add_argument("--patience", type=int, default=3, help="Number of epochs to wait for improvement before early stopping")
     parser.add_argument("--validate_every_n_steps", type=int, default=1000, help="Perform validation every n training steps")
@@ -136,10 +140,22 @@ def main():
                         default="datasets/bge_data/split_1/msmarco_hn_train.jsonl,datasets/bge_data/split_1/nq.jsonl,datasets/bge_data/split/fever.json,datasets/bge_data/split/hotpotqa_pairs.json,datasets/bge_data/split/mr-tydi_english.jsonl",
                         help="Comma-separated list of file paths for the prepared dataset in the desired order.")
     parser.add_argument("--prepared_data_sample_counts", type=str,
-                        default="650000,100000,150000,50000,20000",
-                        help="Comma-separated list of sample counts for each prepared dataset file in the same order.")
+                        default="-1,-1,-1,-1,-1",
+                        help="Comma-separated list of sample counts for each prepared dataset file in the same order. Use -1 to use all available samples.")
 
     args = parser.parse_args()
+
+    group_size = 1 + args.n_per_query
+    if args.per_device_train_batch_size % group_size != 0:
+        raise ValueError(
+            f"per_device_train_batch_size ({args.per_device_train_batch_size}) "
+            f"must be a multiple of group_size ({group_size})"
+        )
+    if args.per_device_eval_batch_size % group_size != 0:
+        raise ValueError(
+            f"per_device_eval_batch_size ({args.per_device_eval_batch_size}) "
+            f"must be a multiple of group_size ({group_size})"
+        )
 
     logging.basicConfig(
         level=logging.INFO,
@@ -265,15 +281,13 @@ def main():
     # Here we use the dev split from the first (primary) dataset.
     # ----------------------------------------------------------
     dev_dataset = "msmarco"
-    dev_index = "msmarco-v1-passage"
+    dev_index = "msmarco-v1-passage.bge-base-en-v1.5"
     logger.info(f"Loading dev set from primary dataset: {dev_dataset}")
     corpus_dev, queries_dev, qrels_dev = load_dataset(logger, dev_dataset, split="dev")
     sampled_queries_dev, sampled_qrels_dev = subsample_dev_set(
         queries_dev, qrels_dev, sample_percentage=args.sample_dev_percentage
     )
 
-    # For speed, we use sparse index for the dev set.
-    # Note: The index type for the dev set is not important, as we are not using it for training.
     validation_samples = prepare_training_samples_infonce(
         corpus_dev,
         sampled_queries_dev,
@@ -281,11 +295,16 @@ def main():
         n_per_query=args.n_per_query,
         hard_negative=True,
         index_name=dev_index,
-        index_type="sparse"
+        index_type="dense",
+        query_encoder="BAAI/bge-base-en-v1.5"
     )
     logger.info(f"Total samples generated for dev set: {len(validation_samples)}")
     logger.info(f"First Validation samples: {validation_samples[0]}")
+    if len(validation_samples) % group_size != 0:
+        logger.warning(f"Validation samples ({len(validation_samples)}) not divisible by group size ({group_size})")
     val_dataset = DocumentRankingDataset(validation_samples, tokenizer, scoring_model)
+    if len(val_dataset) % group_size != 0:
+        logger.warning(f"Validation dataset size ({len(val_dataset)}) not divisible by {group_size}")
 
     total_training_steps = math.ceil(
         len(train_dataset) / (args.per_device_train_batch_size * args.gradient_accumulation_steps)
@@ -385,14 +404,14 @@ if __name__ == "__main__":
     --wandb_project "your_project_name" \
     --wandb_entity "your_group_name" \
     --wandb_api_key "your_wandb_api_key"
-
+    
     Example usage:
     deepspeed --module finetune.finetune \
     --deepspeed_config deepspeed_config.json \
     --model_name "EleutherAI/pythia-410m" \
     --use_prepared_data \
-    --prepared_data_files "datasets/bge_data/split_1/msmarco_hn_train.jsonl,datasets/bge_data/split_1/nq.jsonl,datasets/bge_data/split/fever.json,datasets/bge_data/split/hotpotqa_pairs.json,datasets/bge_data/split/mr-tydi_english.jsonl" \
-    --prepared_data_sample_counts "650000,100000,150000,50000,20000" \
+    --prepared_data_files "datasets/bge_data/split_1/msmarco_hn_train.jsonl,datasets/bge_data/split_1/nq.jsonl,datasets/bge_data/split/fever.json,datasets/bge_data/split/hotpotqa_pairs.json,datasets/bge_data/split/mr-tydi_english.jsonl,datasets/bge_data/split/nli_simcse.json" \
+    --prepared_data_sample_counts "-1,-1,-1,-1,-1,-1" \
     --n_per_query 15 \
     --num_train_epochs 1 \
     --per_device_train_batch_size 32 \

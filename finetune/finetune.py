@@ -5,7 +5,7 @@ from datetime import datetime
 import math
 import random
 
-from transformers import AutoModel, AutoTokenizer, AutoConfig, TrainingArguments, Trainer, EarlyStoppingCallback, DataCollatorWithPadding
+from transformers import AutoModel, AutoTokenizer, AutoConfig, TrainingArguments, Trainer, EarlyStoppingCallback, DataCollatorWithPadding, TrainerCallback
 from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
@@ -51,7 +51,7 @@ class DocumentRankingTrainer(Trainer):
         if eval_dataset is None:
             eval_dataset = self.eval_dataset
 
-        return DataLoader(
+        dataloader = DataLoader(
             eval_dataset,
             batch_size=self.args.per_device_eval_batch_size,
             shuffle=False,
@@ -60,6 +60,13 @@ class DocumentRankingTrainer(Trainer):
             num_workers=self.args.dataloader_num_workers,
             pin_memory=self.args.dataloader_pin_memory,
         )
+    
+        try:
+            print(f"[DEBUG] Evaluation dataloader has {len(dataloader)} batches, total examples: {len(eval_dataset)}")
+        except TypeError:
+            print("[DEBUG] Evaluation dataloader created (dataset might be an IterableDataset)")
+
+        return dataloader
 
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         labels = inputs.pop("labels")  # Not used in this loss
@@ -75,15 +82,29 @@ class DocumentRankingTrainer(Trainer):
         N_groups = len(logits) // group_size
         
         logits = logits.view(N_groups, group_size)
+        print("Logits min:", logits.min(dim=1), "max:", logits.max(dim=1))
+
         targets = torch.zeros(N_groups, dtype=torch.long, device=logits.device) # Target loss to 0 at the first position.
         
         # Temperature parameter, can be tuned.
         # BGE: 0.01
-        tau = 0.05
+        # 0.05, 0.1
+        tau = 1.0
         logits = logits / tau
         
         loss = nn.CrossEntropyLoss()(logits, targets)
         return (loss, outputs) if return_outputs else loss
+    
+# Custom callback to log debug info during evaluation
+class EvaluationDebugCallback(TrainerCallback):
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        print("===== Evaluation Debug Info =====")
+        print(f"Global Step: {state.global_step}")
+        if metrics is not None:
+            for key, value in metrics.items():
+                print(f"{key}: {value}")
+        print("==================================")
+        return control
     
 def is_main_process():
     # If distributed is not available or not initialized, assume single-process (main)
@@ -361,6 +382,8 @@ def main():
         tokenizer=tokenizer
         # callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]
     )
+
+    trainer.add_callback(EvaluationDebugCallback)
 
     # Train the model.
     trainer.train()

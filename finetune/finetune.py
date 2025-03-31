@@ -117,6 +117,7 @@ def main():
     parser.add_argument("--gradient_accumulation_steps", type=int, default=8, help="Number of gradient accumulation steps.")
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate.")
     parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay for optimizer.")
+    parser.add_argument("--gradient_checkpointing", action="store_true", help="Enable gradient checkpointing for memory efficiency.")
     
     # Evaluation settings.
     parser.add_argument("--sample_dev_percentage", type=float, default=0.1, help="Percentage of dev queries to sample for evaluation")
@@ -208,6 +209,12 @@ def main():
     config = AutoConfig.from_pretrained(args.model_name)
     decoder = AutoModel.from_pretrained(args.model_name, config=config)
     scoring_model = ScoringWrapper(config, decoder)
+
+    if args.gradient_checkpointing:
+        # Enable gradient checkpointing for memory efficiency.
+        # This is especially useful for large models.
+        logger.info("Enabling gradient checkpointing...")
+        scoring_model.decoder.gradient_checkpointing_enable()
 
     # Add special tokens and resize embeddings
     if tokenizer.pad_token is None:
@@ -421,6 +428,7 @@ if __name__ == "__main__":
     --output_dir "./cdr_finetune_ckpts_pythia_410m_bgedata" \
     --save_model_path "cdr_finetune_final_pythia_410m_bgedata" \
     --run_name "pythia_410m_mixed_bge_data"
+    --gradient_checkpointing
     """
 
 

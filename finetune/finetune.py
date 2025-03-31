@@ -47,19 +47,19 @@ class DocumentRankingTrainer(Trainer):
             pin_memory=self.args.dataloader_pin_memory,
         )
     
-    # def get_eval_dataloader(self, eval_dataset=None, **kwargs):
-    #     if eval_dataset is None:
-    #         eval_dataset = self.eval_dataset
+    def get_eval_dataloader(self, eval_dataset=None, **kwargs):
+        if eval_dataset is None:
+            eval_dataset = self.eval_dataset
 
-    #     return DataLoader(
-    #         eval_dataset,
-    #         batch_size=self.args.per_device_eval_batch_size,
-    #         shuffle=False,
-    #         drop_last=False,
-    #         collate_fn=self.data_collator,
-    #         num_workers=self.args.dataloader_num_workers,
-    #         pin_memory=self.args.dataloader_pin_memory,
-    #     )
+        return DataLoader(
+            eval_dataset,
+            batch_size=self.args.per_device_eval_batch_size,
+            shuffle=False,
+            drop_last=True,
+            collate_fn=self.data_collator,
+            num_workers=self.args.dataloader_num_workers,
+            pin_memory=self.args.dataloader_pin_memory,
+        )
 
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         labels = inputs.pop("labels")  # Not used in this loss
@@ -78,8 +78,7 @@ class DocumentRankingTrainer(Trainer):
         targets = torch.zeros(N_groups, dtype=torch.long, device=logits.device) # Target loss to 0 at the first position.
         
         # Temperature parameter, can be tuned.
-        # BGE: 0.01 too small (loss stuck)
-        # 0.05 also stuck
+        # BGE: 0.01
         tau = 0.05
         logits = logits / tau
         
@@ -290,28 +289,28 @@ def main():
     # ----------------------------------------------------------
     # Prepare a validation set.
     # ----------------------------------------------------------
-    # dev_dataset = "msmarco"
-    # dev_index = "msmarco-v1-passage.bge-base-en-v1.5"
-    # logger.info(f"Loading dev set from primary dataset: {dev_dataset}")
-    # corpus_dev, queries_dev, qrels_dev = load_dataset(logger, dev_dataset, split="dev")
-    # sampled_queries_dev, sampled_qrels_dev = subsample_dev_set(
-    #     queries_dev, qrels_dev, sample_percentage=args.sample_dev_percentage
-    # )
+    dev_dataset = "msmarco"
+    dev_index = "msmarco-v1-passage.bge-base-en-v1.5"
+    logger.info(f"Loading dev set from primary dataset: {dev_dataset}")
+    corpus_dev, queries_dev, qrels_dev = load_dataset(logger, dev_dataset, split="dev")
+    sampled_queries_dev, sampled_qrels_dev = subsample_dev_set(
+        queries_dev, qrels_dev, sample_percentage=args.sample_dev_percentage
+    )
 
-    # validation_samples = prepare_training_samples_infonce(
-    #     corpus_dev,
-    #     sampled_queries_dev,
-    #     sampled_qrels_dev,
-    #     n_per_query=args.n_per_query,
-    #     hard_negative=True,
-    #     index_name=dev_index,
-    #     index_type="dense",
-    #     query_encoder="BAAI/bge-base-en-v1.5"
-    # )
-    # logger.info(f"Total samples generated for dev set: {len(validation_samples)}")
-    # logger.info(f"First Validation samples: {validation_samples[0]}")
+    validation_samples = prepare_training_samples_infonce(
+        corpus_dev,
+        sampled_queries_dev,
+        sampled_qrels_dev,
+        n_per_query=args.n_per_query,
+        hard_negative=True,
+        index_name=dev_index,
+        index_type="dense",
+        query_encoder="BAAI/bge-base-en-v1.5"
+    )
+    logger.info(f"Total samples generated for dev set: {len(validation_samples)}")
+    logger.info(f"First Validation samples: {validation_samples[0]}")
 
-    # val_dataset = DocumentRankingDataset(validation_samples, tokenizer, scoring_model)
+    val_dataset = DocumentRankingDataset(validation_samples, tokenizer, scoring_model)
 
     total_training_steps = math.ceil(
         len(train_dataset) / (args.per_device_train_batch_size * args.gradient_accumulation_steps)
@@ -330,17 +329,17 @@ def main():
         warmup_steps=warmup_steps,
         weight_decay=args.weight_decay,
         max_grad_norm=1.0,
-        # per_device_eval_batch_size=args.per_device_eval_batch_size,
-        # eval_accumulation_steps=args.eval_accumulation_steps,
-        # eval_strategy="steps",
-        # eval_steps=args.validate_every_n_steps,
+        per_device_eval_batch_size=args.per_device_eval_batch_size,
+        eval_accumulation_steps=args.eval_accumulation_steps,
+        eval_strategy="steps",
+        eval_steps=args.validate_every_n_steps,
         logging_dir="./logs_finetune",
         logging_steps=50,
         logging_first_step=True,
         save_steps=5000,
-        # load_best_model_at_end=True,
-        # metric_for_best_model="eval_loss",
-        # greater_is_better=False,
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
         report_to="wandb",
         run_name=run_name,
         remove_unused_columns=False,
@@ -357,7 +356,7 @@ def main():
         args=training_args,
         train_dataset=train_dataset,
         data_collator=data_collator,
-        # eval_dataset=val_dataset,
+        eval_dataset=val_dataset,
         n_per_query=args.n_per_query,
         tokenizer=tokenizer
         # callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]
@@ -423,8 +422,8 @@ if __name__ == "__main__":
     --n_per_query 15 \
     --num_train_epochs 1 \
     --per_device_train_batch_size 64 \
-    --gradient_accumulation_steps 4 \
-    --lr 5e-5 \
+    --gradient_accumulation_steps 8 \
+    --lr 2e-5 \
     --weight_decay 0.01 \
     --sample_dev_percentage 0.1 \
     --per_device_eval_batch_size 16 \

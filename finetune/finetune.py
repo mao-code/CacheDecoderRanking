@@ -313,7 +313,7 @@ def main():
     total_training_steps = math.ceil(
         len(train_dataset) / (args.per_device_train_batch_size * args.gradient_accumulation_steps)
     ) * args.num_train_epochs
-    warmup_steps = int(0.1 * total_training_steps)
+    warmup_steps = int(0.01 * total_training_steps)
 
     # Set up TrainingArguments.
     training_args = TrainingArguments(
@@ -418,9 +418,9 @@ if __name__ == "__main__":
     --prepared_data_sample_counts "0,0,0,0,0,0" \
     --n_per_query 15 \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 32 \
-    --gradient_accumulation_steps 1 \
-    --lr 1e-5 \
+    --per_device_train_batch_size 64 \
+    --gradient_accumulation_steps 8 \
+    --lr 1e-4 \
     --weight_decay 0.01 \
     --sample_dev_percentage 0.1 \
     --per_device_eval_batch_size 16 \

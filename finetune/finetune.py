@@ -77,7 +77,9 @@ class DocumentRankingTrainer(Trainer):
         logits = logits.view(N_groups, group_size)
         targets = torch.zeros(N_groups, dtype=torch.long, device=logits.device) # Target loss to 0
         
-        tau = 0.01  # Temperature parameter, can be tuned. Now, according to BGE, we use 0.01.
+        # Temperature parameter, can be tuned.
+        # BGE: 0.01 too small (loss stuck)
+        tau = 0.05
         logits = logits / tau
         
         loss = nn.CrossEntropyLoss()(logits, targets)
@@ -326,6 +328,7 @@ def main():
         learning_rate=args.lr,
         warmup_steps=warmup_steps,
         weight_decay=args.weight_decay,
+        max_grad_norm=1.0,
         # per_device_eval_batch_size=args.per_device_eval_batch_size,
         # eval_accumulation_steps=args.eval_accumulation_steps,
         # eval_strategy="steps",
@@ -420,7 +423,7 @@ if __name__ == "__main__":
     --num_train_epochs 1 \
     --per_device_train_batch_size 64 \
     --gradient_accumulation_steps 8 \
-    --lr 1e-4 \
+    --lr 5e-5 \
     --weight_decay 0.01 \
     --sample_dev_percentage 0.1 \
     --per_device_eval_batch_size 16 \

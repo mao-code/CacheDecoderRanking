@@ -75,10 +75,11 @@ class DocumentRankingTrainer(Trainer):
         N_groups = len(logits) // group_size
         
         logits = logits.view(N_groups, group_size)
-        targets = torch.zeros(N_groups, dtype=torch.long, device=logits.device) # Target loss to 0
+        targets = torch.zeros(N_groups, dtype=torch.long, device=logits.device) # Target loss to 0 at the first position.
         
         # Temperature parameter, can be tuned.
         # BGE: 0.01 too small (loss stuck)
+        # 0.05 also stuck
         tau = 0.05
         logits = logits / tau
         
@@ -422,7 +423,7 @@ if __name__ == "__main__":
     --n_per_query 15 \
     --num_train_epochs 1 \
     --per_device_train_batch_size 64 \
-    --gradient_accumulation_steps 8 \
+    --gradient_accumulation_steps 4 \
     --lr 5e-5 \
     --weight_decay 0.01 \
     --sample_dev_percentage 0.1 \

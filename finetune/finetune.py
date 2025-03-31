@@ -82,7 +82,6 @@ class DocumentRankingTrainer(Trainer):
         N_groups = len(logits) // group_size
         
         logits = logits.view(N_groups, group_size)
-        print("Logits min:", logits.min(dim=1), "max:", logits.max(dim=1))
 
         targets = torch.zeros(N_groups, dtype=torch.long, device=logits.device) # Target loss to 0 at the first position.
         
@@ -306,6 +305,7 @@ def main():
     
     # Create PyTorch Dataset for training.
     train_dataset = DocumentRankingDataset(all_training_samples, tokenizer, scoring_model)
+    logger.info(f"Training dataset size: {len(train_dataset)}")
 
     # ----------------------------------------------------------
     # Prepare a validation set.
@@ -332,7 +332,8 @@ def main():
     logger.info(f"First Validation samples: {validation_samples[0]}")
 
     val_dataset = DocumentRankingDataset(validation_samples, tokenizer, scoring_model)
-
+    logger.info(f"Validation dataset size: {len(val_dataset)}")
+    
     total_training_steps = math.ceil(
         len(train_dataset) / (args.per_device_train_batch_size * args.gradient_accumulation_steps)
     ) * args.num_train_epochs
@@ -452,7 +453,7 @@ if __name__ == "__main__":
     --per_device_eval_batch_size 16 \
     --eval_accumulation_steps 1 \
     --patience 10 \
-    --validate_every_n_steps 100 \
+    --validate_every_n_steps 10 \
     --output_dir "./cdr_finetune_ckpts_pythia_410m_bgedata" \
     --save_model_path "cdr_finetune_final_pythia_410m_bgedata" \
     --run_name "pythia_410m_mixed_bge_data" \

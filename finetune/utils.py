@@ -276,7 +276,9 @@ def prepare_training_samples_bce(
     
     return training_samples
 
-def subsample_dev_set(queries_dev: dict, qrels_dev: dict, sample_percentage: float = 0.1):
+def subsample_dev_set(queries_dev: dict, qrels_dev: dict, sample_percentage: float = 0.1, seed=42):
+    random.seed(seed)
+    
     dev_query_ids = list(queries_dev.keys())
     num_sample = max(1, int(len(dev_query_ids) * sample_percentage))
     sampled_ids = random.sample(dev_query_ids, num_sample)

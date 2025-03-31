@@ -182,9 +182,11 @@ def main():
         raise ValueError("The number of datasets, samples_per_dataset, and index_names must match.")
 
     # Initialize Wandb.
-    # Use 'export WANDB_API_KEY="your_wandb_api_key"'
-    # Use 'export WANDB_PROJECT="cdr_finetuning_document_ranking"'
-    # Use 'export WANDB_ENTITY="nlp-maocode"'
+    # Use 
+    # export WANDB_API_KEY="your_wandb_api_key"
+    # export WANDB_PROJECT="cdr_finetuning_document_ranking"
+    # export WANDB_ENTITY="nlp-maocode"
+
     # if is_main_process():
     #     wandb.login(key=args.wandb_api_key)
     #     wandb.init(
@@ -427,7 +429,7 @@ if __name__ == "__main__":
     --validate_every_n_steps 100 \
     --output_dir "./cdr_finetune_ckpts_pythia_410m_bgedata" \
     --save_model_path "cdr_finetune_final_pythia_410m_bgedata" \
-    --run_name "pythia_410m_mixed_bge_data"
+    --run_name "pythia_410m_mixed_bge_data" \
     --gradient_checkpointing
     """
 

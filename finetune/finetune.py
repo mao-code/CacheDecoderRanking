@@ -94,17 +94,6 @@ class DocumentRankingTrainer(Trainer):
         loss = nn.CrossEntropyLoss()(logits, targets)
         return (loss, outputs) if return_outputs else loss
     
-# Custom callback to log debug info during evaluation
-class EvaluationDebugCallback(TrainerCallback):
-    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
-        print("===== Evaluation Debug Info =====")
-        print(f"Global Step: {state.global_step}")
-        if metrics is not None:
-            for key, value in metrics.items():
-                print(f"{key}: {value}")
-        print("==================================")
-        return control
-    
 def is_main_process():
     # If distributed is not available or not initialized, assume single-process (main)
     if not torch.distributed.is_available() or not torch.distributed.is_initialized():
@@ -143,7 +132,6 @@ def main():
     
     # Evaluation settings.
     parser.add_argument("--eval_dataset_file", type=str, default="validation_samples.jsonl", help="Path to the evaluation dataset file.")
-    # parser.add_argument("--sample_dev_percentage", type=float, default=0.1, help="Percentage of dev queries to sample for evaluation")
     parser.add_argument("--per_device_eval_batch_size", type=int, default=8, help="Per-device evaluation batch size")
     parser.add_argument("--eval_accumulation_steps", type=int, default=1, help="Evaluation accumulation steps")
     parser.add_argument("--patience", type=int, default=3, help="Number of epochs to wait for improvement before early stopping")
@@ -153,9 +141,6 @@ def main():
     parser.add_argument("--output_dir", type=str, default="./gfr_finetune_ckpts", help="Output directory for model checkpoints")
     parser.add_argument("--save_model_path", type=str, default="gfr_finetune_final", help="Directory to save the final best model")
     parser.add_argument("--run_name", type=str, default="", help="Run name for logging")
-    parser.add_argument("--wandb_project", type=str, default="gfr_finetuning_document_ranking", help="Wandb project name")
-    parser.add_argument("--wandb_entity", type=str, default="your_group_name", help="Wandb entity name")
-    parser.add_argument("--wandb_api_key", type=str, default="your_wandb_api_key", help="Wandb API key for logging")
 
     parser.add_argument("--use_prepared_data", action="store_true", 
                         help="If set, load pre-organized data from prepared files rather than computing hard negatives.")
@@ -205,29 +190,11 @@ def main():
         raise ValueError("The number of datasets, samples_per_dataset, and index_names must match.")
 
     # Initialize Wandb.
-    # Use 
-    # export WANDB_API_KEY="your_wandb_api_key"
-    # export WANDB_PROJECT="cdr_finetuning_document_ranking"
-    # export WANDB_ENTITY="nlp-maocode"
-
-    # if is_main_process():
-    #     wandb.login(key=args.wandb_api_key)
-    #     wandb.init(
-    #         project=args.wandb_project,
-    #         entity=args.wandb_entity,
-    #         name=run_name,
-    #         config={
-    #             "model_name": args.model_name,
-    #             "datasets": datasets_list,
-    #             "samples_per_dataset": samples_list,
-    #             "index_names": index_names_list,
-    #             "n_per_query": args.n_per_query,
-    #             "learning_rate": args.lr,
-    #             "per_device_train_batch_size": args.per_device_train_batch_size,
-    #             "gradient_accumulation_steps": args.gradient_accumulation_steps,
-    #             "num_train_epochs": args.num_train_epochs
-    #         }
-    #     )
+    """
+    export WANDB_API_KEY="your_wandb_api_key"
+    export WANDB_PROJECT="cdr_finetuning_document_ranking"
+    export WANDB_ENTITY="nlp-maocode"
+    """
 
     # Load tokenizer and model
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
@@ -309,32 +276,8 @@ def main():
     logger.info(f"Training dataset size: {len(train_dataset)}")
 
     # ----------------------------------------------------------
-    # Prepare a validation set.
+    # Load a validation set.
     # ----------------------------------------------------------
-    # dev_dataset = "msmarco"
-    # dev_index = "msmarco-v1-passage.bge-base-en-v1.5"
-    # logger.info(f"Loading dev set from primary dataset: {dev_dataset}")
-    # corpus_dev, queries_dev, qrels_dev = load_dataset(logger, dev_dataset, split="dev")
-    # sampled_queries_dev, sampled_qrels_dev = subsample_dev_set(
-    #     queries_dev, qrels_dev, sample_percentage=args.sample_dev_percentage
-    # )
-
-    # validation_samples = prepare_training_samples_infonce(
-    #     corpus_dev,
-    #     sampled_queries_dev,
-    #     sampled_qrels_dev,
-    #     n_per_query=args.n_per_query,
-    #     hard_negative=True,
-    #     index_name=dev_index,
-    #     index_type="dense",
-    #     query_encoder="BAAI/bge-base-en-v1.5"
-    # )
-    # logger.info(f"Total samples generated for dev set: {len(validation_samples)}")
-    # logger.info(f"First Validation samples: {validation_samples[0]}")
-
-    # val_dataset = DocumentRankingDataset(validation_samples, tokenizer, scoring_model)
-    # logger.info(f"Validation dataset size: {len(val_dataset)}")
-
     # Load the validation dataset from a JSONL file.
     validation_samples = load_json_file(args.eval_dataset_file)
     logger.info(f"Total samples generated for dev set: {len(validation_samples)}")
@@ -439,13 +382,6 @@ if __name__ == "__main__":
     --index_type "dense" \
     --quey_encoder "BAAI/bge-base-en-v1.5" \
     
-    If you want to use wandb and don't want to set the environment variables, add the following arguments:
-    --wandb_project "your_project_name" \
-    --wandb_entity "your_group_name" \
-    --wandb_api_key "your_wandb_api_key"
-
-    --sample_dev_percentage 0.1 \
-    
     Example usage:
     deepspeed --module finetune.finetune \
     --deepspeed_config deepspeed_config.json \
@@ -463,7 +399,7 @@ if __name__ == "__main__":
     --per_device_eval_batch_size 16 \
     --eval_accumulation_steps 1 \
     --patience 10 \
-    --validate_every_n_steps 10 \
+    --validate_every_n_steps 100 \
     --output_dir "./cdr_finetune_ckpts_pythia_410m_bgedata" \
     --save_model_path "cdr_finetune_final_pythia_410m_bgedata" \
     --run_name "pythia_410m_mixed_bge_data" \

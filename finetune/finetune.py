@@ -335,8 +335,6 @@ def main():
         # callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)]
     )
 
-    trainer.add_callback(EvaluationDebugCallback)
-
     # Train the model.
     trainer.train()
 

@@ -333,7 +333,7 @@ def main():
         logging_dir="./logs_finetune",
         logging_steps=50,
         logging_first_step=True,
-        save_steps=100000,
+        save_steps=5000,
         # load_best_model_at_end=True,
         # metric_for_best_model="eval_loss",
         # greater_is_better=False,

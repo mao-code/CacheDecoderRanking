@@ -88,7 +88,7 @@ class DocumentRankingTrainer(Trainer):
         # Temperature parameter, can be tuned.
         # BGE: 0.01
         # 0.05, 0.1
-        tau = 1.0
+        tau = 0.01
         logits = logits / tau
         
         loss = nn.CrossEntropyLoss()(logits, targets)
@@ -341,7 +341,6 @@ def main():
     logger.info(f"First Validation samples: {validation_samples[0]}")
     val_dataset = DocumentRankingDataset(validation_samples, tokenizer, scoring_model)
     logger.info(f"Validation dataset size: {len(val_dataset)}")
-
 
     total_training_steps = math.ceil(
         len(train_dataset) / (args.per_device_train_batch_size * args.gradient_accumulation_steps)

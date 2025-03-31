@@ -72,9 +72,9 @@ if __name__ == "__main__":
     --index_type dense \
     --query_encoder BAAI/bge-base-en-v1.5 \
     --sample_dev_percentage 0.1 \
-    --n_per_query 16 \
+    --n_per_query 15 \
     --hard_negative \
-    --output_file msmarco_val.jsonl
+    --output_file datasets/msmarco_val.jsonl
     """
     main()
 

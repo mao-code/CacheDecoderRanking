@@ -191,6 +191,39 @@ def prepare_training_samples_infonce(
                 
     return training_samples
 
+def subsample_dev_set(queries_dev: dict, qrels_dev: dict, sample_percentage: float = 0.1, seed=42):
+    random.seed(seed)
+
+    dev_query_ids = list(queries_dev.keys())
+    num_sample = max(1, int(len(dev_query_ids) * sample_percentage))
+    sampled_ids = random.sample(dev_query_ids, num_sample)
+    
+    sampled_queries = {qid: queries_dev[qid] for qid in sampled_ids}
+    sampled_qrels = {qid: qrels_dev[qid] for qid in sampled_ids if qid in qrels_dev}
+    
+    return sampled_queries, sampled_qrels
+
+def log_training_config(training_args, logger=None):
+    # Determine the number of GPUs being used.
+    if torch.distributed.is_initialized():
+        num_gpus = torch.distributed.get_world_size()
+    else:
+        num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
+
+    # Calculate the effective (global) batch size.
+    per_device_bs = training_args.per_device_train_batch_size
+    grad_accum_steps = training_args.gradient_accumulation_steps
+    effective_batch_size = per_device_bs * grad_accum_steps * num_gpus
+
+    # Log the configuration details.
+    logger.info("==============================================")
+    logger.info("Training Configuration:")
+    logger.info(f"  Number of GPUs utilized         : {num_gpus}")
+    logger.info(f"  Per-device batch size           : {per_device_bs}")
+    logger.info(f"  Gradient accumulation steps     : {grad_accum_steps}")
+    logger.info(f"  Effective (global) batch size   : {effective_batch_size}")
+    logger.info("==============================================")
+
 def prepare_training_samples_bce(
     corpus: dict,
     queries: dict,
@@ -275,36 +308,3 @@ def prepare_training_samples_bce(
             training_samples.append((query_text, corpus[neg_doc_id]['text'], 0.0))
     
     return training_samples
-
-def subsample_dev_set(queries_dev: dict, qrels_dev: dict, sample_percentage: float = 0.1, seed=42):
-    random.seed(seed)
-    
-    dev_query_ids = list(queries_dev.keys())
-    num_sample = max(1, int(len(dev_query_ids) * sample_percentage))
-    sampled_ids = random.sample(dev_query_ids, num_sample)
-    
-    sampled_queries = {qid: queries_dev[qid] for qid in sampled_ids}
-    sampled_qrels = {qid: qrels_dev[qid] for qid in sampled_ids if qid in qrels_dev}
-    
-    return sampled_queries, sampled_qrels
-
-def log_training_config(training_args, logger=None):
-    # Determine the number of GPUs being used.
-    if torch.distributed.is_initialized():
-        num_gpus = torch.distributed.get_world_size()
-    else:
-        num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
-
-    # Calculate the effective (global) batch size.
-    per_device_bs = training_args.per_device_train_batch_size
-    grad_accum_steps = training_args.gradient_accumulation_steps
-    effective_batch_size = per_device_bs * grad_accum_steps * num_gpus
-
-    # Log the configuration details.
-    logger.info("==============================================")
-    logger.info("Training Configuration:")
-    logger.info(f"  Number of GPUs utilized         : {num_gpus}")
-    logger.info(f"  Per-device batch size           : {per_device_bs}")
-    logger.info(f"  Gradient accumulation steps     : {grad_accum_steps}")
-    logger.info(f"  Effective (global) batch size   : {effective_batch_size}")
-    logger.info("==============================================")

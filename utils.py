@@ -25,9 +25,6 @@ def load_dataset(logger, dataset: str, split: str):
     
     return corpus, queries, qrels
 
-import os
-import json
-
 def load_json_file(file_path):
     """
     Load a JSON or JSONL file.
@@ -55,6 +52,20 @@ def load_json_file(file_path):
                 return data
     else:
         raise ValueError(f"Unsupported file extension: {ext}")
+    
+def save_samples_to_file(samples, output_file):
+    """Save the samples to a JSON or JSONL file based on the extension."""
+    ext = os.path.splitext(output_file)[1]
+    if ext == ".jsonl":
+        with open(output_file, "w", encoding="utf-8") as f:
+            for sample in samples:
+                f.write(json.dumps(sample) + "\n")
+    elif ext == ".json":
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(samples, f, indent=2)
+    else:
+        raise ValueError("Unsupported file extension. Use .json or .jsonl")
+
 
 class MainProcessFilter(logging.Filter):
     def __init__(self, local_rank):

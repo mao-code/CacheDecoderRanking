@@ -12,7 +12,7 @@ import torch.nn as nn
 
 from dataset.document_ranking import DocumentRankingDataset
 from finetune.utils import prepare_training_samples_infonce, prepare_training_samples_bce, subsample_dev_set
-from utils import load_dataset, MainProcessFilter
+from utils import load_dataset, MainProcessFilter, load_json_file
 from CDR.modeling import ScoringWrapper
 from finetune.utils import load_prepared_samples, log_training_config
 
@@ -142,7 +142,8 @@ def main():
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Enable gradient checkpointing for memory efficiency.")
     
     # Evaluation settings.
-    parser.add_argument("--sample_dev_percentage", type=float, default=0.1, help="Percentage of dev queries to sample for evaluation")
+    parser.add_argument("--eval_dataset_file", type=str, default="validation_samples.jsonl", help="Path to the evaluation dataset file.")
+    # parser.add_argument("--sample_dev_percentage", type=float, default=0.1, help="Percentage of dev queries to sample for evaluation")
     parser.add_argument("--per_device_eval_batch_size", type=int, default=8, help="Per-device evaluation batch size")
     parser.add_argument("--eval_accumulation_steps", type=int, default=1, help="Evaluation accumulation steps")
     parser.add_argument("--patience", type=int, default=3, help="Number of epochs to wait for improvement before early stopping")
@@ -310,30 +311,38 @@ def main():
     # ----------------------------------------------------------
     # Prepare a validation set.
     # ----------------------------------------------------------
-    dev_dataset = "msmarco"
-    dev_index = "msmarco-v1-passage.bge-base-en-v1.5"
-    logger.info(f"Loading dev set from primary dataset: {dev_dataset}")
-    corpus_dev, queries_dev, qrels_dev = load_dataset(logger, dev_dataset, split="dev")
-    sampled_queries_dev, sampled_qrels_dev = subsample_dev_set(
-        queries_dev, qrels_dev, sample_percentage=args.sample_dev_percentage
-    )
+    # dev_dataset = "msmarco"
+    # dev_index = "msmarco-v1-passage.bge-base-en-v1.5"
+    # logger.info(f"Loading dev set from primary dataset: {dev_dataset}")
+    # corpus_dev, queries_dev, qrels_dev = load_dataset(logger, dev_dataset, split="dev")
+    # sampled_queries_dev, sampled_qrels_dev = subsample_dev_set(
+    #     queries_dev, qrels_dev, sample_percentage=args.sample_dev_percentage
+    # )
 
-    validation_samples = prepare_training_samples_infonce(
-        corpus_dev,
-        sampled_queries_dev,
-        sampled_qrels_dev,
-        n_per_query=args.n_per_query,
-        hard_negative=True,
-        index_name=dev_index,
-        index_type="dense",
-        query_encoder="BAAI/bge-base-en-v1.5"
-    )
+    # validation_samples = prepare_training_samples_infonce(
+    #     corpus_dev,
+    #     sampled_queries_dev,
+    #     sampled_qrels_dev,
+    #     n_per_query=args.n_per_query,
+    #     hard_negative=True,
+    #     index_name=dev_index,
+    #     index_type="dense",
+    #     query_encoder="BAAI/bge-base-en-v1.5"
+    # )
+    # logger.info(f"Total samples generated for dev set: {len(validation_samples)}")
+    # logger.info(f"First Validation samples: {validation_samples[0]}")
+
+    # val_dataset = DocumentRankingDataset(validation_samples, tokenizer, scoring_model)
+    # logger.info(f"Validation dataset size: {len(val_dataset)}")
+
+    # Load the validation dataset from a JSONL file.
+    validation_samples = load_json_file(args.eval_dataset_file)
     logger.info(f"Total samples generated for dev set: {len(validation_samples)}")
     logger.info(f"First Validation samples: {validation_samples[0]}")
-
     val_dataset = DocumentRankingDataset(validation_samples, tokenizer, scoring_model)
     logger.info(f"Validation dataset size: {len(val_dataset)}")
-    
+
+
     total_training_steps = math.ceil(
         len(train_dataset) / (args.per_device_train_batch_size * args.gradient_accumulation_steps)
     ) * args.num_train_epochs
@@ -435,6 +444,8 @@ if __name__ == "__main__":
     --wandb_project "your_project_name" \
     --wandb_entity "your_group_name" \
     --wandb_api_key "your_wandb_api_key"
+
+    --sample_dev_percentage 0.1 \
     
     Example usage:
     deepspeed --module finetune.finetune \
@@ -449,7 +460,7 @@ if __name__ == "__main__":
     --gradient_accumulation_steps 8 \
     --lr 2e-5 \
     --weight_decay 0.01 \
-    --sample_dev_percentage 0.1 \
+    --eval_dataset_file "datasets/msmarco_val.jsonl" \
     --per_device_eval_batch_size 16 \
     --eval_accumulation_steps 1 \
     --patience 10 \

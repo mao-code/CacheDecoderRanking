@@ -61,11 +61,6 @@ class DocumentRankingTrainer(Trainer):
             pin_memory=self.args.dataloader_pin_memory,
         )
     
-        try:
-            print(f"[DEBUG] Evaluation dataloader has {len(dataloader)} batches, total examples: {len(eval_dataset)}")
-        except TypeError:
-            print("[DEBUG] Evaluation dataloader created (dataset might be an IterableDataset)")
-
         return dataloader
 
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):

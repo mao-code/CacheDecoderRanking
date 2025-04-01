@@ -80,11 +80,14 @@ class ScoringWrapper(PreTrainedModel):
         hidden_states = outputs.last_hidden_state  # (batch, seq_len, hidden_size)
 
         # Compute the position of [SCORE] for each sequence
-        # Sum of attention_mask gives the unpadded length; [SCORE] is at length - 1
-        score_positions = attention_mask.sum(dim=1) - 1  # Shape: (batch_size,)
+        # If pad to the right, sum of attention_mask gives the unpadded length; [SCORE] is at length - 1
+        # score_positions = attention_mask.sum(dim=1) - 1  # Shape: (batch_size,) 
 
         # Ensure positions are within bounds
-        score_positions = torch.clamp(score_positions, min=0, max=hidden_states.size(1) - 1)
+        # score_positions = torch.clamp(score_positions, min=0, max=hidden_states.size(1) - 1)
+
+        # If pad to the left, the position of [SCORE] is at the last position of the sequence
+        score_positions = hidden_states.size(1) - 1
 
         # Extract the hidden state of [SCORE] for each sequence in the batch
         batch_indices = torch.arange(hidden_states.size(0))  # [0, 1, 2, ..., batch_size-1]
@@ -161,10 +164,10 @@ class ScoringWrapper(PreTrainedModel):
         
         for ids, tt_ids in zip(input_ids_list, token_type_ids_list):
             pad_length = batch_max_length - len(ids)
-            padded_ids = ids + [tokenizer.pad_token_id] * pad_length
-            padded_tt_ids = tt_ids + [0] * pad_length
+            padded_ids = [tokenizer.pad_token_id] * pad_length + ids
+            padded_tt_ids = [0] * pad_length + tt_ids
             # Create attention mask: 1 for original tokens, 0 for pad tokens.
-            attention_mask = [1] * len(ids) + [0] * pad_length
+            attention_mask = [0] * pad_length + [1] * len(ids)
             
             padded_input_ids.append(padded_ids)
             padded_token_type_ids.append(padded_tt_ids)

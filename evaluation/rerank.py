@@ -64,7 +64,7 @@ def main():
 
     # Load the dataset
     logger.info(f"Loading dataset '{args.dataset}' with split '{args.split}'...")
-    corpus, queries, qrels = load_dataset(args.dataset, split=args.split)
+    corpus, queries, qrels = load_dataset(dataset=args.dataset, split=args.split)
 
     # Initialize the searcher based on retrieval type
     if args.index_name is not None:
@@ -354,7 +354,7 @@ def main():
     logger.info("\n" + tabulate(comparison_table, headers=headers, tablefmt="grid"))
 
     # --- Save the comparison table to a CSV file ---
-    csv_file = "rerank_comparison_table.csv"
+    csv_file = "rerank_comparison_table_cdr.csv"
     with open(csv_file, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(headers)
@@ -373,7 +373,7 @@ python -m evaluation.rerank \
   --dataset msmarco \
   --index_name msmarco-v1-passage \
   --split test \
-  --models cdr:./cdr_finetune_final_pythia_410m_mixed standard:cross-encoder/ms-marco-MiniLM-L-12-v2 \
+  --models cdr:./cdr_finetune_final_pythia_410m_mixed standard:cross-encoder/ms-marco-MiniLM-L-12-v2 standard:mixedbread-ai/mxbai-rerank-large-v1 standard:jinaai/jina-reranker-v2-base-multilingual standard:BAAI/bge-reranker-v2-m3 \
   --cdr_decoder EleutherAI/pythia-410m \
   --log_file rerank_results.log \
   --batch_size 16 \

@@ -313,7 +313,6 @@ def main():
         remove_unused_columns=False,
         deepspeed=args.deepspeed_config,
     )
-
     log_training_config(training_args, logger)
 
     # Initialize our custom Trainer.
@@ -376,6 +375,7 @@ if __name__ == "__main__":
     --quey_encoder "BAAI/bge-base-en-v1.5" \
     
     Example usage:
+    
     deepspeed --module finetune.finetune \
     --deepspeed_config deepspeed_config.json \
     --model_name "EleutherAI/pythia-410m" \

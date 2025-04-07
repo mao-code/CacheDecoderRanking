@@ -64,7 +64,7 @@ def main():
 
     # Load the dataset
     logger.info(f"Loading dataset '{args.dataset}' with split '{args.split}'...")
-    corpus, queries, qrels = load_dataset(dataset=args.dataset, split=args.split)
+    corpus, queries, qrels = load_dataset(logger, dataset=args.dataset, split=args.split)
 
     # Initialize the searcher based on retrieval type
     if args.index_name is not None:

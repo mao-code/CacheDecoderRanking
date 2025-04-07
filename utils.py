@@ -3,7 +3,6 @@ import logging
 from beir import util
 from beir.datasets.data_loader import GenericDataLoader
 import json
-import torch
 
 def load_dataset(logger, dataset: str, split: str):
     """Loads a BEIR dataset and prefixes ids with the dataset name."""
@@ -65,7 +64,6 @@ def save_samples_to_file(samples, output_file):
             json.dump(samples, f, indent=2)
     else:
         raise ValueError("Unsupported file extension. Use .json or .jsonl")
-
 
 class MainProcessFilter(logging.Filter):
     def __init__(self, local_rank):
